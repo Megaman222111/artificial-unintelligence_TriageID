@@ -67,13 +67,12 @@ export async function getPatientById(patientId: string): Promise<Patient | null>
   }
 }
 
-export async function scanNfcTag(tagId?: string): Promise<Patient | null> {
-  const body = tagId ? { tag_id: tagId } : {}
-
+/** Look up patient by NFC tag id read from Arduino. tagId must come from the reader; backend only returns patients that exist for that nfc_id. */
+export async function scanNfcTag(tagId: string): Promise<Patient | null> {
   try {
     const result = await fetchJson<{ patient: Patient }>("/api/nfc/scan/", {
       method: "POST",
-      body: JSON.stringify(body),
+      body: JSON.stringify({ tag_id: tagId }),
     })
     return result.patient
   } catch {

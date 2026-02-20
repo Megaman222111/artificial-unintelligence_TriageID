@@ -1,10 +1,12 @@
 "use client"
 
 import { useState, useCallback, useEffect, useRef } from "react"
-import { Nfc } from "lucide-react"
+import { Nfc, Usb } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import type { Patient } from "@/lib/api"
 import { PatientOverlay } from "@/components/dashboard/patient-overlay"
 import { scanNfcTag } from "@/lib/api"
+import { useSerial } from "@/hooks/use-serial"
 
 // Ambient concentric rings config
 const AMBIENT_RINGS = [
@@ -21,26 +23,26 @@ export function NfcScanView() {
   const [ripples, setRipples] = useState<number[]>([])
   const rippleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const handleScan = useCallback(async () => {
-    if (isScanning || scannedPatient) return
-
+  const handleTagReadFromSerial = useCallback(async (tagId: string) => {
     setScanError(null)
     setIsScanning(true)
-
     try {
-      const patient = await scanNfcTag()
-      await new Promise((resolve) => setTimeout(resolve, 800))
-
-      if (!patient) {
-        setScanError("Scan failed. Confirm the Django backend is running and reachable.")
-        return
-      }
-
-      setScannedPatient(patient)
+      const patient = await scanNfcTag(tagId)
+      await new Promise((resolve) => setTimeout(resolve, 400))
+      if (patient) setScannedPatient(patient)
+      else setScanError(`No patient found for NFC ID "${tagId}".`)
     } finally {
       setIsScanning(false)
     }
-  }, [isScanning, scannedPatient])
+  }, [])
+
+  const {
+    isSupported: serialSupported,
+    isConnected: serialConnected,
+    error: serialError,
+    connect: serialConnect,
+    disconnect: serialDisconnect,
+  } = useSerial(handleTagReadFromSerial)
 
   const handleClose = useCallback(() => {
     setScannedPatient(null)
@@ -77,9 +79,30 @@ export function NfcScanView() {
         <div className="absolute left-1/2 top-1/2 h-[600px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/3 blur-3xl" />
       </div>
 
+      {/* Disconnect only (connect is the main button below) */}
+      {serialSupported && serialConnected && (
+        <div className="absolute right-4 top-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={serialDisconnect}
+            className="gap-2 border-primary/30 bg-primary/5 text-primary"
+          >
+            <Usb className="h-3.5 w-3.5" />
+            Disconnect reader
+          </Button>
+        </div>
+      )}
+
       {/* Status text */}
       <p className="mb-2 text-sm font-medium uppercase tracking-widest text-muted-foreground">
-        {isScanning ? "Scanning..." : "Ready to Scan"}
+        {isScanning
+          ? "Scanning..."
+          : serialConnected
+            ? "Hold wristband to reader"
+            : serialSupported
+              ? "Tap the button to connect Arduino"
+              : "Web Serial not supported (use Chrome/Edge)"}
       </p>
 
       <h2 className="mb-10 text-center text-2xl font-bold font-[family-name:var(--font-heading)] text-foreground md:text-3xl text-balance">
@@ -121,19 +144,31 @@ export function NfcScanView() {
           />
         ))}
 
-        {/* The scanner button itself -- completely static */}
+        {/* Main button: connect Arduino when disconnected; when connected, scanning is via reader only */}
         <button
-          onClick={handleScan}
-          disabled={isScanning || !!scannedPatient}
-          className="group relative z-10 flex h-56 w-56 cursor-pointer items-center justify-center rounded-full focus:outline-none md:h-64 md:w-64"
-          aria-label="Scan NFC wristband"
+          onClick={serialSupported && !serialConnected ? serialConnect : undefined}
+          disabled={
+            (serialSupported && serialConnected) || isScanning || !!scannedPatient
+          }
+          className="group relative z-10 flex h-56 w-56 cursor-pointer items-center justify-center rounded-full focus:outline-none disabled:cursor-default disabled:opacity-100 md:h-64 md:w-64"
+          aria-label={
+            serialConnected
+              ? "Waiting for NFC tap on reader"
+              : serialSupported
+                ? "Connect to Arduino NFC reader"
+                : "Web Serial not available"
+          }
         >
           {/* Outer glow ring on hover/scan */}
           <div
             className={`absolute inset-0 rounded-full transition-shadow duration-500 ${
               isScanning
                 ? "shadow-[0_0_60px_rgba(74,222,128,0.15)]"
-                : "group-hover:shadow-[0_0_40px_rgba(74,222,128,0.1)]"
+                : !serialConnected && serialSupported
+                  ? "group-hover:shadow-[0_0_40px_rgba(74,222,128,0.1)]"
+                  : serialConnected
+                    ? "shadow-[0_0_40px_rgba(74,222,128,0.08)]"
+                    : ""
             }`}
           />
 
@@ -150,24 +185,36 @@ export function NfcScanView() {
             className={`relative flex h-44 w-44 flex-col items-center justify-center rounded-full border-2 transition-all duration-300 md:h-52 md:w-52 ${
               isScanning
                 ? "border-primary bg-primary/10"
-                : "border-primary/30 bg-card shadow-lg group-hover:border-primary group-hover:bg-primary/5"
+                : serialConnected
+                  ? "border-primary/40 bg-primary/5"
+                  : "border-primary/30 bg-card shadow-lg group-hover:border-primary group-hover:bg-primary/5"
             }`}
           >
             <Nfc
               className={`mb-3 h-12 w-12 transition-colors md:h-14 md:w-14 ${
                 isScanning
                   ? "text-primary"
-                  : "text-primary/60 group-hover:text-primary"
+                  : serialConnected
+                    ? "text-primary"
+                    : "text-primary/60 group-hover:text-primary"
               }`}
             />
             <span
               className={`text-sm font-semibold tracking-wide transition-colors ${
                 isScanning
                   ? "text-primary"
-                  : "text-muted-foreground group-hover:text-foreground"
+                  : serialConnected
+                    ? "text-primary"
+                    : "text-muted-foreground group-hover:text-foreground"
               }`}
             >
-              {isScanning ? "Reading..." : "Scan Here"}
+              {isScanning
+                ? "Reading..."
+                : serialConnected
+                  ? "Hold wristband to reader"
+                  : serialSupported
+                    ? "Connect to Arduino"
+                    : "Scan Here"}
             </span>
           </div>
         </button>
@@ -179,8 +226,10 @@ export function NfcScanView() {
         their medical records securely.
       </p>
 
-      {scanError && (
-        <p className="mt-3 text-center text-sm text-destructive">{scanError}</p>
+      {(scanError || serialError) && (
+        <p className="mt-3 text-center text-sm text-destructive">
+          {scanError ?? serialError}
+        </p>
       )}
 
       {/* Patient data overlay */}
