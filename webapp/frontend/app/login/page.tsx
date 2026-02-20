@@ -7,22 +7,28 @@ import { Shield, Eye, EyeOff, ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { login } from "@/lib/auth"
 
 export default function LoginPage() {
   const router = useRouter()
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    setError(null)
     setIsLoading(true)
-    // Simulated login
-    setTimeout(() => {
-      setIsLoading(false)
+    try {
+      await login(email, password)
       router.push("/dashboard")
-    }, 1000)
+      router.refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Sign in failed.")
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -123,6 +129,9 @@ export default function LoginPage() {
               </div>
             </div>
 
+            {error && (
+              <p className="text-sm text-destructive">{error}</p>
+            )}
             <Button type="submit" size="lg" className="mt-2 gap-2" disabled={isLoading}>
               {isLoading ? "Signing in..." : "Sign In"}
               {!isLoading && <ArrowRight className="h-4 w-4" />}

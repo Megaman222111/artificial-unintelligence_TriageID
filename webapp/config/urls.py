@@ -27,6 +27,8 @@ def api_root(request):
         "service": "medlink-api",
         "status": "running",
         "routes": [
+            "/api/auth/login/",
+            "/api/auth/me/",
             "/api/patients/",
             "/api/patients/<id>/",
             "/api/patients/by-nfc/<nfc_id>/",
@@ -39,6 +41,7 @@ def api_root(request):
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("api/auth/", include("accounts.urls")),
     path("api/users/", include("nfc_users.urls")),
     path("api/patients/", include("nfc_users.patient_urls")),
     path("api/nfc/scan/", nfc_scan_view),

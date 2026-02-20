@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'corsheaders',
     'nfc_users',
+    'accounts',
 ]
 
 MIDDLEWARE = [

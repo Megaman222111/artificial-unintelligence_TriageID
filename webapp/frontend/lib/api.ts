@@ -33,19 +33,25 @@ export interface Patient {
   notes: string[]
 }
 
+import { getAccessToken } from "./auth"
+
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_DJANGO_API_BASE_URL ||
   process.env.DJANGO_API_BASE_URL ||
   "http://127.0.0.1:8000"
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...((init?.headers as Record<string, string>) ?? {}),
+  }
+  const token = getAccessToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     cache: "no-store",
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
+    headers,
   })
 
   if (!response.ok) {
