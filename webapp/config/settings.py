@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-(q4rtwn)0eztuv6ub2e%8!%!h*37-vex3))%vjos_w08&cy_5b
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["localhost", "127.0.0.1", "*"]
 
 
 # Application definition
@@ -87,8 +87,22 @@ DATABASES = {
     }
 }
 
-# CORS for frontend (same-origin if served by Django; allow for dev)
+# CORS: allow dev app (Next.js on localhost:3000) and any origin when DEBUG
 CORS_ALLOW_ALL_ORIGINS = DEBUG
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+# Required so browser sends Authorization header on cross-origin /api/auth/me/
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "origin",
+    "user-agent",
+    "x-requested-with",
+]
 if not DEBUG:
     CORS_ALLOWED_ORIGINS = os.environ.get("CORS_ORIGINS", "").split()
 
@@ -131,4 +145,3 @@ STATIC_URL = 'static/'
 # Frontend lives at project root (frontend/), not under webapp; webapp is backend + serial format reference
 PROJECT_ROOT = BASE_DIR.parent
 FRONTEND_INDEX = PROJECT_ROOT / 'frontend' / 'index.html'
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '*']

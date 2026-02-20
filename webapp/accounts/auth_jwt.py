@@ -17,11 +17,12 @@ def make_access_token(user_id: int, email: str) -> str:
         "iat": int(time.time()),
         "type": "access",
     }
-    return jwt.encode(
+    raw = jwt.encode(
         payload,
         settings.SECRET_KEY,
         algorithm=JWT_ALGORITHM,
     )
+    return raw if isinstance(raw, str) else raw.decode("utf-8")
 
 
 def decode_access_token(token: str) -> dict | None:

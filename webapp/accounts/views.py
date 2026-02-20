@@ -32,11 +32,11 @@ def _get_user_from_request(request):
     if not payload or payload.get("type") != "access":
         return None
     user_id = payload.get("sub")
-    if not user_id:
+    if user_id is None:
         return None
     try:
-        return User.objects.get(pk=user_id)
-    except User.DoesNotExist:
+        return User.objects.get(pk=int(user_id))
+    except (ValueError, User.DoesNotExist):
         return None
 
 
@@ -75,9 +75,9 @@ def login(request):
             status=403,
         )
 
-    access_token = make_access_token(user.id, user.email or "")
+    access_token = make_access_token(user.pk, user.email or "")
     return JsonResponse({
-        "accessToken": str(access_token) if not isinstance(access_token, str) else access_token,
+        "accessToken": access_token,
         "user": _user_to_json(user),
     })
 

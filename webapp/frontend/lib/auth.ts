@@ -28,16 +28,30 @@ export function clearAccessToken(): void {
 }
 
 export async function login(email: string, password: string): Promise<{ user: AuthUser }> {
-  const res = await fetch(`${API_BASE_URL}/api/auth/login/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  })
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE_URL}/api/auth/login/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    })
+  } catch {
+    throw new Error("Cannot reach server. Is the Django backend running on port 8000?")
+  }
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    throw new Error(data.detail || `Login failed (${res.status})`)
+    const message =
+      typeof data.detail === "string"
+        ? data.detail
+        : Array.isArray(data.detail)
+          ? data.detail.join(" ")
+          : `Login failed (${res.status})`
+    throw new Error(message)
   }
-  const token = data.accessToken
+  const token =
+    data.accessToken != null && typeof data.accessToken === "string"
+      ? data.accessToken.trim()
+      : ""
   const user = data.user as AuthUser
   if (token) setAccessToken(token)
   return { user }
