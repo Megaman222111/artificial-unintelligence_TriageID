@@ -5,22 +5,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote
 
 try:
-    from .data import PATIENTS
+    from .db import get_patient_by_id, get_patient_by_nfc, init_db, list_patients, patient_count
 except ImportError:
-    from data import PATIENTS
+    from db import get_patient_by_id, get_patient_by_nfc, init_db, list_patients, patient_count
 
 
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
 HOST = os.getenv("API_HOST", "127.0.0.1")
 PORT = int(os.getenv("API_PORT", "8000"))
-
-
-def _find_patient_by_id(patient_id: str):
-    return next((patient for patient in PATIENTS if patient["id"] == patient_id), None)
-
-
-def _find_patient_by_nfc(nfc_id: str):
-    return next((patient for patient in PATIENTS if patient["nfcId"] == nfc_id), None)
 
 
 class ApiHandler(BaseHTTPRequestHandler):
@@ -75,11 +67,11 @@ class ApiHandler(BaseHTTPRequestHandler):
             return self._send_json({"status": "ok", "service": "medlink-api"})
 
         if path == "/api/patients/":
-            return self._send_json(PATIENTS)
+            return self._send_json(list_patients())
 
         if path.startswith("/api/patients/by-nfc/") and path.endswith("/"):
             nfc_id = unquote(path.removeprefix("/api/patients/by-nfc/").removesuffix("/"))
-            patient = _find_patient_by_nfc(nfc_id)
+            patient = get_patient_by_nfc(nfc_id)
             if patient is None:
                 return self._send_json(
                     {"detail": f"No patient mapped to NFC tag '{nfc_id}'."},
@@ -90,8 +82,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/patients/") and path.endswith("/"):
             patient_id = unquote(path.removeprefix("/api/patients/").removesuffix("/"))
             if patient_id == "":
-                return self._send_json(PATIENTS)
-            patient = _find_patient_by_id(patient_id)
+                return self._send_json(list_patients())
+            patient = get_patient_by_id(patient_id)
             if patient is None:
                 return self._send_json(
                     {"detail": f"Patient '{patient_id}' not found."},
@@ -112,10 +104,13 @@ class ApiHandler(BaseHTTPRequestHandler):
         tag_id = payload.get("tag_id")
 
         if not tag_id:
-            patient = random.choice(PATIENTS)
+            patients = list_patients()
+            if not patients:
+                return self._send_json({"detail": "No patients in database."}, status=404)
+            patient = random.choice(patients)
             return self._send_json({"mode": "prototype-random", "patient": patient})
 
-        patient = _find_patient_by_nfc(tag_id)
+        patient = get_patient_by_nfc(tag_id)
         if patient is None:
             return self._send_json(
                 {"detail": f"No patient mapped to NFC tag '{tag_id}'."},
@@ -129,9 +124,10 @@ class ApiHandler(BaseHTTPRequestHandler):
 
 
 def run():
+    init_db()
     server = ThreadingHTTPServer((HOST, PORT), ApiHandler)
     print(f"API server running at http://{HOST}:{PORT}")
-    print(f"Loaded {len(PATIENTS)} patients")
+    print(f"Loaded {patient_count()} patients from SQLite")
     server.serve_forever()
 
 
