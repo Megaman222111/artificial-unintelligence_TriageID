@@ -1,40 +1,85 @@
-# End-to-end verification: NFC → Backend → Risk model → Frontend
+# End-to-end verification: NFC -> Backend -> Risk model -> Frontend
 
-This doc summarizes how the full flow is wired and what was verified.
+This doc is the runnable verification flow for the current setup:
+- model is trained from CSV data
+- model predicts on DB patient records at runtime
 
-## Flow
+## 1. Prepare and train model
 
-1. **NFC scan**
-   - User connects Arduino reader (Web Serial), taps wristband.
-   - `nfc-scan-view.tsx` → `handleTagReadFromSerial(tagId)` → `scanNfcTag(tagId)`.
-   - **POST** `http://127.0.0.1:8000/api/nfc/scan/` with `{ "tag_id": "<tagId>" }`.
-   - Backend `nfc_scan` in `nfc_users/views.py` does `Patient.objects.get(nfc_id=tag_id)`, returns `{ "patient": p.to_api_dict() }`.
-   - Frontend sets `scannedPatient` and renders `<PatientOverlay patient={scannedPatient} />`.
+```bash
+cd webapp
+pip install -r requirements.txt
+python manage.py train_risk_model --min-rows 25 --min-positives 5 --max-rows 50000
+```
 
-2. **Risk score (overlay)**
-   - `PatientOverlay` has `useEffect` on `patient.id` that calls `getPatientRiskScore(patient.id)`.
-   - **POST** `/api/patients/risk-score/` with `{ "patient_id": patient.id }`.
-   - Backend `patient_risk_score` gets `Patient.objects.get(pk=patient_id)`, calls `RISK_SERVICE.predict(patient)`.
-   - `RiskScoringService` uses `patient_to_feature_dict(patient)` (reads Patient’s encrypted props), loads latest `risk_model_*.joblib` from `risk_scoring/artifacts/`, runs pipeline, returns `risk_band` (low/medium/high), `risk_probability`, `top_factors`, etc.
-   - Frontend displays badge (low/medium/high), probability, and top factors.
+Expected training output includes:
+- `model_version=risk-v1-...`
+- `rows=...`
+- `positives=...`
+- `metrics=...`
 
-3. **Risk score (detail page)**
-   - From dashboard list or overlay “View full profile”, user goes to `/dashboard/patient/[id]`.
-   - Page fetches patient via `getPatientById(id)` then renders `<PatientDetail patient={patient} />`.
-   - `PatientDetail` calls `getPatientRiskScore(patient.id)` and shows the same risk block.
+Model artifact is written to `webapp/risk_scoring/artifacts/risk_model_risk-v1-*.joblib`.
 
-## Verified
+## 2. Start backend and validate risk API
 
-- **URLs**: `config/urls.py` includes `api/nfc/scan/` and `api/patients/` (patient_urls); `patient_urls.py` has `risk-score/` → `patient_risk_score`.
-- **Views**: `nfc_scan` returns patient by `nfc_id`; `patient_risk_score` loads patient by `pk`, calls `RISK_SERVICE.predict(patient)`, returns JSON matching `PatientRiskScore`.
-- **Features**: `patient_to_feature_dict` uses only attributes present on `Patient` (date_of_birth, admission_date, allergies, medications, status, primary_diagnosis, etc.); `Patient.to_api_dict()` includes `id` so frontend has `patient.id`.
-- **Frontend**: `scanNfcTag` returns `result.patient`; overlay and detail both call `getPatientRiskScore(patient.id)` and render risk band + probability + factors; `API_BASE_URL` defaults to `http://127.0.0.1:8000`.
-- **CORS**: `config/settings.py` has `corsheaders` and `CORS_ALLOW_ALL_ORIGINS = DEBUG` so Next.js on another port can call the API.
-- **Model**: Standalone test `risk_scoring/test_risk_service.py` loads artifact and returns valid `risk_band` and probability (run: `cd webapp && PYTHONPATH=. python risk_scoring/test_risk_service.py`).
+Terminal 1:
 
-## How to run E2E manually
+```bash
+cd webapp
+python manage.py runserver
+```
 
-1. **Backend**: `cd webapp && python manage.py runserver`
-2. **Frontend**: `cd webapp/frontend && npm run dev`
-3. Open app, connect NFC reader, scan a wristband linked to a patient → overlay should show patient and risk (low/medium/high).
-4. Or open a patient from the dashboard → detail page should show the same risk block.
+Terminal 2:
+
+```bash
+API_BASE="http://127.0.0.1:8000"
+
+PATIENT_ID=$(
+  curl -s "$API_BASE/api/patients/" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['id'] if d else '')"
+)
+
+if [ -z "$PATIENT_ID" ]; then
+  echo "No patients found. Create one first."
+else
+  echo "Using patient_id=$PATIENT_ID"
+  curl -s -X POST "$API_BASE/api/patients/risk-score/" \
+    -H "Content-Type: application/json" \
+    -d "{\"patient_id\":\"$PATIENT_ID\"}" | python3 -m json.tool
+fi
+```
+
+Expected response shape:
+- `riskProbability`
+- `riskBand` (`low` | `medium` | `high`)
+- `modelVersion`
+- `topFactors`
+- `scoringMode` (`supervised` when model is loaded, otherwise `heuristic`)
+
+## 3. Start frontend and verify UI
+
+```bash
+cd webapp/frontend
+npm install
+npm run dev
+```
+
+Then verify:
+1. Scan NFC wristband linked to a patient and confirm overlay shows risk band + probability.
+2. Open patient detail page and confirm the same risk block is shown.
+
+## Wiring summary
+
+1. NFC scan:
+- Frontend `scanNfcTag(tagId)` posts to `/api/nfc/scan/`.
+- Backend `nfc_scan` resolves `Patient` by `nfc_id`.
+
+2. Risk score:
+- Frontend `getPatientRiskScore(patient.id)` posts to `/api/patients/risk-score/`.
+- Backend `patient_risk_score` calls `RISK_SERVICE.predict(patient)`.
+
+3. Feature + model behavior:
+- Runtime features come from DB patient fields mapped by `patient_to_feature_dict`:
+  `age_years`, `days_since_admission`, `medication_count`, `history_count`,
+  `past_history_count`, `gender` (plus `status` only for heuristic fallback).
+- Service loads latest `risk_model_*.joblib` from `risk_scoring/artifacts/`.
+- If model load/predict fails, service returns heuristic fallback.
