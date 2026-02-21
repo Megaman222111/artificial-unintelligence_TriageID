@@ -4,7 +4,7 @@ REST API for NFC user lookup, create, and Patient API for React frontend.
 import json
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.http import require_GET, require_POST, require_http_methods
 
 from .models import UserProfile, Patient
 
@@ -78,6 +78,32 @@ def patient_list(request):
     return JsonResponse([p.to_api_dict() for p in patients], safe=False)
 
 
+def _patient_api_dict_from_body(body):
+    """Build patient field dict from JSON body (camelCase or snake_case)."""
+    def get(key_camel, key_snake=None):
+        k = key_snake or key_camel
+        return body.get(key_camel) if body.get(key_camel) is not None else body.get(k)
+    return {
+        "first_name": (get("firstName", "first_name") or "").strip() or None,
+        "last_name": (get("lastName", "last_name") or "").strip() or None,
+        "date_of_birth": get("dateOfBirth", "date_of_birth") or "",
+        "gender": get("gender") or "",
+        "blood_type": get("bloodType", "blood_type") or "",
+        "status": get("status") or "active",
+        "room": get("room") or "",
+        "admission_date": get("admissionDate", "admission_date") or "",
+        "primary_diagnosis": get("primaryDiagnosis", "primary_diagnosis") or "",
+        "insurance_provider": get("insuranceProvider", "insurance_provider") or "",
+        "insurance_id": get("insuranceId", "insurance_id") or "",
+        "allergies": get("allergies") if get("allergies") is not None else [],
+        "emergency_contact": get("emergencyContact", "emergency_contact") if get("emergencyContact", "emergency_contact") is not None else {},
+        "medications": get("medications") if get("medications") is not None else [],
+        "vital_signs": get("vitalSigns", "vital_signs") if get("vitalSigns", "vital_signs") is not None else {},
+        "medical_history": get("medicalHistory", "medical_history") if get("medicalHistory", "medical_history") is not None else [],
+        "notes": get("notes") if get("notes") is not None else [],
+    }
+
+
 @require_GET
 def patient_by_id(request, patient_id: str):
     """GET /api/patients/<id>/ – Get patient by id."""
@@ -88,6 +114,31 @@ def patient_by_id(request, patient_id: str):
             {"detail": f"Patient '{patient_id}' not found."},
             status=404,
         )
+    return JsonResponse(p.to_api_dict())
+
+
+@csrf_exempt
+@require_http_methods(["PUT", "PATCH"])
+def patient_update(request, patient_id: str):
+    """PUT/PATCH /api/patients/<id>/ – Update patient (full or partial)."""
+    try:
+        body = json.loads(request.body) if request.body else {}
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON."}, status=400)
+
+    try:
+        p = Patient.objects.get(pk=patient_id.strip())
+    except Patient.DoesNotExist:
+        return JsonResponse(
+            {"detail": f"Patient '{patient_id}' not found."},
+            status=404,
+        )
+
+    data = _patient_api_dict_from_body(body)
+    for key, value in data.items():
+        if value is not None:
+            setattr(p, key, value)
+    p.save()
     return JsonResponse(p.to_api_dict())
 
 
@@ -102,6 +153,62 @@ def patient_by_nfc(request, nfc_id: str):
             status=404,
         )
     return JsonResponse(p.to_api_dict())
+
+
+@csrf_exempt
+@require_POST
+def patient_create(request):
+    """
+    POST /api/patients/create/ – Create a patient (e.g. when scanning an empty card).
+    Body: JSON with nfcId (required), firstName, lastName (required); optional room, etc.
+    Uses nfc_id as patient id. Other fields get sensible defaults.
+    """
+    try:
+        body = json.loads(request.body) if request.body else {}
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON."}, status=400)
+
+    nfc_id = (body.get("nfcId") or body.get("nfc_id") or "").strip()[:15]
+    first_name = (body.get("firstName") or body.get("first_name") or "").strip()
+    last_name = (body.get("lastName") or body.get("last_name") or "").strip()
+
+    if not nfc_id:
+        return JsonResponse({"detail": "nfcId is required."}, status=400)
+    if not first_name:
+        return JsonResponse({"detail": "firstName is required."}, status=400)
+    if not last_name:
+        return JsonResponse({"detail": "lastName is required."}, status=400)
+
+    if Patient.objects.filter(nfc_id=nfc_id).exists():
+        return JsonResponse(
+            {"detail": f"A patient is already linked to NFC tag '{nfc_id}'."},
+            status=409,
+        )
+
+    patient_id = nfc_id
+    p = Patient(
+        id=patient_id,
+        nfc_id=nfc_id,
+        first_name=first_name,
+        last_name=last_name,
+        date_of_birth=body.get("dateOfBirth") or body.get("date_of_birth") or "",
+        gender=body.get("gender") or "",
+        blood_type=body.get("bloodType") or body.get("blood_type") or "",
+        status=body.get("status") or "active",
+        room=body.get("room") or "",
+        admission_date=body.get("admissionDate") or body.get("admission_date") or "",
+        primary_diagnosis=body.get("primaryDiagnosis") or body.get("primary_diagnosis") or "",
+        insurance_provider=body.get("insuranceProvider") or body.get("insurance_provider") or "",
+        insurance_id=body.get("insuranceId") or body.get("insurance_id") or "",
+        allergies=body.get("allergies") or [],
+        emergency_contact=body.get("emergencyContact") or body.get("emergency_contact") or {},
+        medications=body.get("medications") or [],
+        vital_signs=body.get("vitalSigns") or body.get("vital_signs") or {},
+        medical_history=body.get("medicalHistory") or body.get("medical_history") or [],
+        notes=body.get("notes") or [],
+    )
+    p.save()
+    return JsonResponse(p.to_api_dict(), status=201)
 
 
 @csrf_exempt

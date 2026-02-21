@@ -99,7 +99,7 @@ class UserProfile(models.Model):
 
 class Patient(models.Model):
     """
-    Patient record for MedLink dashboard. Matches the React Patient interface.
+    Patient record for TriageID dashboard. Matches the React Patient interface.
     nfc_id is the value stored on the NFC tag (max 15 chars from PN532).
     """
     id = models.CharField(max_length=64, primary_key=True)

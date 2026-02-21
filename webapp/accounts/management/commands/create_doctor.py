@@ -9,7 +9,7 @@ User = get_user_model()
 
 
 class Command(BaseCommand):
-    help = "Create a doctor (staff) user for MedLink login."
+    help = "Create a doctor (staff) user for TriageID login."
 
     def add_arguments(self, parser):
         parser.add_argument("email", type=str)

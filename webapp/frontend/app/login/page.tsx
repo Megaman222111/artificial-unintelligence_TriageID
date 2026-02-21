@@ -40,7 +40,7 @@ export default function LoginPage() {
           <Shield className="h-5 w-5 text-white" />
         </div>
         <span className="text-xl font-bold font-[family-name:var(--font-heading)] text-white">
-          MedLink
+          TriageID
         </span>
       </Link>
 

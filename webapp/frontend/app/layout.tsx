@@ -14,7 +14,7 @@ const _spaceGrotesk = Space_Grotesk({
 })
 
 export const metadata: Metadata = {
-  title: 'MedLink NFC - Secure Patient Identification',
+  title: 'TriageID NFC - Secure Patient Identification',
   description:
     'NFC-based patient identification system for instant verification in emergencies. Secure, encrypted wristbands for healthcare professionals.',
   icons: {

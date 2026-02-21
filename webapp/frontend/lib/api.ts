@@ -73,6 +73,17 @@ export async function getPatientById(patientId: string): Promise<Patient | null>
   }
 }
 
+/** Get patient by NFC tag ID (for edit page when tag is scanned). */
+export async function getPatientByNfcId(nfcId: string): Promise<Patient | null> {
+  try {
+    return await fetchJson<Patient>(
+      `/api/patients/by-nfc/${encodeURIComponent(nfcId.trim())}/`
+    )
+  } catch {
+    return null
+  }
+}
+
 /** Look up patient by NFC tag id read from Arduino. tagId must come from the reader; backend only returns patients that exist for that nfc_id. */
 export async function scanNfcTag(tagId: string): Promise<Patient | null> {
   try {
@@ -84,4 +95,75 @@ export async function scanNfcTag(tagId: string): Promise<Patient | null> {
   } catch {
     return null
   }
+}
+
+/** Create a patient linked to an NFC tag (minimal or full payload). */
+export async function createPatient(data: {
+  nfcId: string
+  firstName: string
+  lastName: string
+  room?: string
+  dateOfBirth?: string
+  gender?: string
+  bloodType?: string
+  status?: string
+  admissionDate?: string
+  allergies?: string[]
+  primaryDiagnosis?: string
+  insuranceProvider?: string
+  insuranceId?: string
+  emergencyContact?: Patient["emergencyContact"]
+  medications?: Patient["medications"]
+  vitalSigns?: Patient["vitalSigns"]
+  medicalHistory?: string[]
+  notes?: string[]
+}): Promise<Patient> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  }
+  const token = getAccessToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  const res = await fetch(`${API_BASE_URL}/api/patients/create/`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(data),
+    cache: "no-store",
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const message =
+      typeof body.detail === "string" ? body.detail : `Failed to add patient (${res.status})`
+    throw new Error(message)
+  }
+  return body as Patient
+}
+
+/** Update patient (full or partial). */
+export async function updatePatient(
+  patientId: string,
+  data: Partial<Omit<Patient, "id" | "nfcId">> & { nfcId?: string }
+): Promise<Patient> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  }
+  const token = getAccessToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  const res = await fetch(
+    `${API_BASE_URL}/api/patients/${encodeURIComponent(patientId)}/`,
+    {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify(data),
+      cache: "no-store",
+    }
+  )
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const message =
+      typeof body.detail === "string" ? body.detail : `Failed to update (${res.status})`
+    throw new Error(message)
+  }
+  return body as Patient
 }
