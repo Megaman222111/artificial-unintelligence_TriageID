@@ -5,20 +5,19 @@ import Link from "next/link"
 import {
   X,
   ShieldCheck,
-  Heart,
-  Thermometer,
-  Activity,
-  Droplets,
   AlertCircle,
   Pill,
   Phone,
   Nfc,
   ExternalLink,
+  Sparkles,
+  Loader2,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import type { Patient } from "@/lib/api"
+import { getPatientAiOverview } from "@/lib/api"
 
 function getStatusColor(status: string) {
   switch (status) {
@@ -56,12 +55,41 @@ export function PatientOverlay({
   onClose: () => void
 }) {
   const [visible, setVisible] = useState(false)
+  const [aiOverview, setAiOverview] = useState<string | null>(null)
+  const [aiOverviewLoading, setAiOverviewLoading] = useState(true)
+  const [aiOverviewError, setAiOverviewError] = useState<string | null>(null)
 
   useEffect(() => {
     // Trigger entrance animation
     const raf = requestAnimationFrame(() => setVisible(true))
     return () => cancelAnimationFrame(raf)
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    setAiOverviewLoading(true)
+    setAiOverviewError(null)
+    setAiOverview(null)
+    getPatientAiOverview(patient.id)
+      .then((text) => {
+        if (!cancelled) {
+          setAiOverview(text)
+          setAiOverviewError(null)
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setAiOverviewError(err instanceof Error ? err.message : "Failed to load AI overview")
+          setAiOverview(null)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setAiOverviewLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [patient.id])
 
   const handleClose = () => {
     setVisible(false)
@@ -109,7 +137,6 @@ export function PatientOverlay({
                     {patient.nfcId}
                   </span>
                   <span>{patient.gender}, {getAge(patient.dateOfBirth)} yrs</span>
-                  <span>Room: {patient.room}</span>
                 </div>
               </div>
             </div>
@@ -132,52 +159,35 @@ export function PatientOverlay({
 
           {/* Content */}
           <div className="p-6">
-            {/* Vitals */}
-            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-              Vital Signs
-            </h3>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <div className="flex items-center gap-2.5 rounded-xl border border-border bg-background p-3">
-                <Heart className="h-4 w-4 text-primary" />
-                <div>
-                  <p className="text-[11px] text-muted-foreground">Heart Rate</p>
-                  <p className="text-sm font-bold text-foreground">
-                    {patient.vitalSigns.heartRate} <span className="text-[10px] font-normal text-muted-foreground">bpm</span>
-                  </p>
-                </div>
+            {/* AI Overview – only show when we have content or are loading */}
+            <div className="mb-5 rounded-xl border border-border bg-muted/30 px-4 py-3">
+              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <Sparkles className="h-4 w-4 text-primary" />
+                AI Overview
               </div>
-              <div className="flex items-center gap-2.5 rounded-xl border border-border bg-background p-3">
-                <Activity className="h-4 w-4 text-accent-foreground" />
-                <div>
-                  <p className="text-[11px] text-muted-foreground">BP</p>
-                  <p className="text-sm font-bold text-foreground">
-                    {patient.vitalSigns.bloodPressure}
-                  </p>
+              {aiOverviewLoading && (
+                <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Generating overview…
                 </div>
-              </div>
-              <div className="flex items-center gap-2.5 rounded-xl border border-border bg-background p-3">
-                <Thermometer className="h-4 w-4 text-primary" />
-                <div>
-                  <p className="text-[11px] text-muted-foreground">Temp</p>
-                  <p className="text-sm font-bold text-foreground">
-                    {patient.vitalSigns.temperature}{"\u00B0F"}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2.5 rounded-xl border border-border bg-background p-3">
-                <Droplets className="h-4 w-4 text-accent-foreground" />
-                <div>
-                  <p className="text-[11px] text-muted-foreground">O2 Sat</p>
-                  <p className="text-sm font-bold text-foreground">
-                    {patient.vitalSigns.oxygenSaturation}%
-                  </p>
-                </div>
-              </div>
+              )}
+              {!aiOverviewLoading && aiOverview && (
+                <p className="mt-2 text-sm leading-relaxed text-foreground">{aiOverview}</p>
+              )}
+              {!aiOverviewLoading && !aiOverview && aiOverviewError && (
+                <p className="mt-2 text-sm text-destructive">{aiOverviewError}</p>
+              )}
+              {!aiOverviewLoading && !aiOverview && !aiOverviewError && (
+                <p className="mt-2 text-sm text-muted-foreground">Overview unavailable</p>
+              )}
             </div>
 
-            <Separator className="my-5" />
+            <Separator className="mb-5" />
 
-            {/* Key Info Grid */}
+            {/* Patient information overview */}
+            <p className="mb-3 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              Patient information
+            </p>
             <div className="grid gap-5 sm:grid-cols-2">
               {/* Left */}
               <div className="flex flex-col gap-4">
@@ -187,15 +197,6 @@ export function PatientOverlay({
                   </p>
                   <p className="mt-0.5 text-xl font-bold text-primary">
                     {patient.bloodType}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                    Primary Diagnosis
-                  </p>
-                  <p className="mt-0.5 text-sm font-medium text-foreground">
-                    {patient.primaryDiagnosis}
                   </p>
                 </div>
 
@@ -272,7 +273,7 @@ export function PatientOverlay({
 
             <Separator className="my-5" />
 
-            {/* Footer actions */}
+            {/* Footer */}
             <div className="flex items-center justify-between">
               <p className="text-xs text-muted-foreground">
                 Scanned at {new Date().toLocaleTimeString()}

@@ -79,6 +79,7 @@ int menuMode = MODE_READ;
 char cmdBuf[CMD_BUF_LEN];
 uint8_t cmdBufIdx = 0;
 #define CARD_WAIT_MS 60000  // max time to wait for card when in command mode
+#define COUNTDOWN_SECONDS 3 // seconds to wait between consecutive scans (LCD countdown)
 
 #define BUZZER_PIN 8
 // Set to 1 only if your buzzer beeps when the pin is LOW (default 0 = beep when HIGH)
@@ -98,12 +99,9 @@ void beepSuccess() {
 }
 
 void beepError() {
-  for (int i = 0; i < 3; i++) {
-    digitalWrite(BUZZER_PIN, BUZZER_ON);
-    delay(50);
-    digitalWrite(BUZZER_PIN, BUZZER_OFF);
-    delay(40);
-  }
+  digitalWrite(BUZZER_PIN, BUZZER_ON);
+  delay(80);
+  digitalWrite(BUZZER_PIN, BUZZER_OFF);
 }
 
 static bool userIDIsEmpty(const char* id) {
@@ -113,12 +111,51 @@ static bool userIDIsEmpty(const char* id) {
   return true;
 }
 
-void lcdShowCardEmpty() {
+// LCD mode: show "Reading" or "Writing" only
+static int lcdDisplayMode = MODE_READ;
+
+void lcdShowReading() {
+  lcdDisplayMode = MODE_READ;
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(F("Reading"));
+}
+
+void lcdShowWriting() {
+  lcdDisplayMode = MODE_WRITE;
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(F("Writing"));
+}
+
+void lcdShowIdle() {
+  if (lcdDisplayMode == MODE_WRITE)
+    lcdShowWriting();
+  else
+    lcdShowReading();
+}
+
+void lcdShowError(const char* msg) {
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print(F("Error"));
   lcd.setCursor(0, 1);
-  lcd.print(F("Bracelet empty"));
+  if (msg)
+    for (int i = 0; i < 16 && msg[i]; i++)
+      lcd.print(msg[i]);
+}
+
+// Show countdown on LCD between consecutive scans (e.g. "Next scan in 3" ... "1")
+void lcdCountdownSeconds(int seconds) {
+  for (int i = seconds; i >= 1; i--) {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(F("Next scan in"));
+    lcd.setCursor(0, 1);
+    lcd.print(i);
+    delay(1000);
+  }
+  lcdShowIdle();
 }
 
 // Run when PN532 not found: scan I2C bus and print tips
@@ -181,53 +218,22 @@ void setup() {
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, BUZZER_OFF);
   lcd.clear();
-  lcdShowReaderActive();
+  lcdShowReading();
 
   printMenu();
 }
 
-void lcdShowReaderActive() {
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print(F("Reader is active"));
-  lcd.setCursor(0, 1);
-  lcd.print(F("and connected"));
-}
-
-void lcdShowUserRead(const char* userid) {
-  char prefix[4] = "   ";  // first 3 chars, null-terminated
-  for (int i = 0; i < 3; i++)
-    prefix[i] = userid && userid[i] ? userid[i] : ' ';
-  prefix[3] = '\0';
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print(F("User ID "));
-  lcd.print(F("read"));
-}
-
-// User ID on line 0, countdown on line 1 at the same time
+// After read: show reading then countdown
 void lcdUserReadAndCountdown(const char* userid) {
-  lcdShowUserRead(userid);
-  for (int i = 3; i >= 1; i--) {
-    lcd.setCursor(0, 1);
-    lcd.print(F("Next tap in: "));
-    lcd.print(i);
-    lcd.print(F("   "));
-    delay(1000);
-  }
-  lcdShowReaderActive();
+  (void)userid;
+  lcdShowReading();
+  lcdCountdownSeconds(COUNTDOWN_SECONDS);
 }
 
+// After write: show writing then countdown
 void lcdCountdown() {
-  for (int i = 3; i >= 1; i--) {
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print(F("Next tap in:"));
-    lcd.setCursor(0, 1);
-    lcd.print(i);
-    delay(1000);
-  }
-  lcdShowReaderActive();
+  lcdShowWriting();
+  lcdCountdownSeconds(COUNTDOWN_SECONDS);
 }
 
 // Wait for card; return true and set uid/uidLen, or false on timeout
@@ -261,11 +267,16 @@ void blockFromUserID(const char *id, uint8_t *block) {
 
 // Protocol: READ -> WAITING, then OK|READ|userid or ERROR|msg
 void doReadCommand() {
+  lcdShowReading();
   Serial.println(F("WAITING"));
   uint8_t uid[8];
   uint8_t uidLen = 0;
   if (!waitForCard(uid, &uidLen, CARD_WAIT_MS)) {
     Serial.println(F("ERROR|Timeout waiting for card"));
+    beepError();
+    lcdShowError("Timeout");
+    delay(3000);
+    lcdShowIdle();
     return;
   }
   char userid[USER_ID_MAX_LEN];
@@ -273,46 +284,65 @@ void doReadCommand() {
   if (uidLen == 4) {
     if (!nfc.mifareclassic_AuthenticateBlock(uid, uidLen, MIFARE_CLASSIC_USER_BLOCK, 0, (uint8_t*)MIFARE_KEY_DEFAULT)) {
       Serial.println(F("ERROR|Auth failed"));
+      beepError();
+      lcdShowError("Auth failed");
+      delay(3000);
+      lcdShowIdle();
       return;
     }
     if (!nfc.mifareclassic_ReadDataBlock(MIFARE_CLASSIC_USER_BLOCK, block)) {
       Serial.println(F("ERROR|Read failed"));
+      beepError();
+      lcdShowError("Read failed");
+      delay(3000);
+      lcdShowIdle();
       return;
     }
   } else if (uidLen == 7) {
     for (int i = 0; i < 4; i++) {
       if (!nfc.mifareultralight_ReadPage(MIFARE_ULTRALIGHT_USER_PAGE + i, block + i * 4)) {
         Serial.println(F("ERROR|Read failed"));
+        beepError();
+        lcdShowError("Read failed");
+        delay(3000);
+        lcdShowIdle();
         return;
       }
     }
   } else {
     Serial.println(F("ERROR|Unsupported card"));
+    beepError();
+    lcdShowError("Unsupported card");
+    delay(3000);
+    lcdShowIdle();
     return;
   }
   userIDFromBlock(block, userid);
   if (userIDIsEmpty(userid)) {
     Serial.println(F("ERROR|Card empty"));
     beepError();
-    lcdShowCardEmpty();
-    delay(3000);
-    lcdShowReaderActive();
+    delay(500);
+    lcdShowIdle();
     return;
   }
   Serial.print(F("OK|READ|"));
   Serial.println(userid);
   beepSuccess();
   lcdUserReadAndCountdown(userid);
-  delay(800);
 }
 
 // Protocol: WRITE|id -> WAITING, then OK|WRITE or ERROR|msg
 void doWriteCommand(const char *id) {
+  lcdShowWriting();
   Serial.println(F("WAITING"));
   uint8_t uid[8];
   uint8_t uidLen = 0;
   if (!waitForCard(uid, &uidLen, CARD_WAIT_MS)) {
     Serial.println(F("ERROR|Timeout waiting for card"));
+    beepError();
+    lcdShowError("Timeout");
+    delay(3000);
+    lcdShowIdle();
     return;
   }
   uint8_t block[16];
@@ -320,27 +350,42 @@ void doWriteCommand(const char *id) {
   if (uidLen == 4) {
     if (!nfc.mifareclassic_AuthenticateBlock(uid, uidLen, MIFARE_CLASSIC_USER_BLOCK, 0, (uint8_t*)MIFARE_KEY_DEFAULT)) {
       Serial.println(F("ERROR|Auth failed"));
+      beepError();
+      lcdShowError("Auth failed");
+      delay(3000);
+      lcdShowIdle();
       return;
     }
     if (!nfc.mifareclassic_WriteDataBlock(MIFARE_CLASSIC_USER_BLOCK, block)) {
       Serial.println(F("ERROR|Write failed"));
+      beepError();
+      lcdShowError("Write failed");
+      delay(3000);
+      lcdShowIdle();
       return;
     }
   } else if (uidLen == 7) {
     for (int i = 0; i < 4; i++) {
       if (!nfc.mifareultralight_WritePage(MIFARE_ULTRALIGHT_USER_PAGE + i, block + i * 4)) {
         Serial.println(F("ERROR|Write failed"));
+        beepError();
+        lcdShowError("Write failed");
+        delay(3000);
+        lcdShowIdle();
         return;
       }
     }
   } else {
     Serial.println(F("ERROR|Unsupported card"));
+    beepError();
+    lcdShowError("Unsupported card");
+    delay(3000);
+    lcdShowIdle();
     return;
   }
   Serial.println(F("OK|WRITE"));
   beepSuccess();
   lcdCountdown();
-  delay(800);
 }
 
 void loop() {
@@ -403,12 +448,13 @@ void loop() {
   }
 
   Serial.println(F("--- Remove card ---\n"));
-  printMenu();
   if (!readOk) {
     delay(3000);
-    lcdShowReaderActive();
+    lcdShowIdle();
+  } else {
+    lcdCountdownSeconds(COUNTDOWN_SECONDS);
   }
-  delay(1500);
+  printMenu();
 }
 
 void printMenu() {
@@ -437,18 +483,22 @@ bool readUserIDClassic(uint8_t *uid, uint8_t uidLen) {
   userIDFromBlock(block, uidStr);
   if (userIDIsEmpty(uidStr)) {
     beepError();
-    lcdShowCardEmpty();
     return false;
   }
   beepSuccess();
-  lcdUserReadAndCountdown(uidStr);
+  lcdShowReading();
   return true;
 }
 
 void writeUserIDClassic(uint8_t *uid, uint8_t uidLen) {
+  lcdShowWriting();
   if (!nfc.mifareclassic_AuthenticateBlock(uid, uidLen, MIFARE_CLASSIC_USER_BLOCK,
                                            0, (uint8_t*)MIFARE_KEY_DEFAULT)) {
     Serial.println(F("Auth failed (wrong key?)."));
+    beepError();
+    lcdShowError("Auth failed");
+    delay(3000);
+    lcdShowIdle();
     return;
   }
 
@@ -457,11 +507,15 @@ void writeUserIDClassic(uint8_t *uid, uint8_t uidLen) {
 
   if (!nfc.mifareclassic_WriteDataBlock(MIFARE_CLASSIC_USER_BLOCK, block)) {
     Serial.println(F("Write block failed."));
+    beepError();
+    lcdShowError("Write failed");
+    delay(3000);
+    lcdShowIdle();
     return;
   }
   Serial.println(F("User ID written."));
   beepSuccess();
-  lcdCountdown();
+  lcdShowWriting();
 }
 
 // ---- Mifare Ultralight: pages 4–7 (16 bytes) ----
@@ -478,27 +532,31 @@ bool readUserIDUltralight() {
   userIDFromBlock(block, uidStr);
   if (userIDIsEmpty(uidStr)) {
     beepError();
-    lcdShowCardEmpty();
     return false;
   }
   beepSuccess();
-  lcdUserReadAndCountdown(uidStr);
+  lcdShowReading();
   return true;
 }
 
 void writeUserIDUltralight() {
+  lcdShowWriting();
   uint8_t block[16];
   if (!getUserIDFromSerial(block)) return;
 
   for (int i = 0; i < 4; i++) {
     if (!nfc.mifareultralight_WritePage(MIFARE_ULTRALIGHT_USER_PAGE + i, block + i * 4)) {
       Serial.println(F("Write page failed."));
+      beepError();
+      lcdShowError("Write failed");
+      delay(3000);
+      lcdShowIdle();
       return;
     }
   }
   Serial.println(F("User ID written."));
   beepSuccess();
-  lcdCountdown();
+  lcdShowWriting();
 }
 
 // ---- Helpers ----

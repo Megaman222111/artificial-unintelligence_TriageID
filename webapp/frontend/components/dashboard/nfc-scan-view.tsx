@@ -1,21 +1,13 @@
 "use client"
 
 import { useState, useCallback, useEffect, useRef } from "react"
+import Link from "next/link"
 import { Nfc, Usb, UserPlus } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog"
 import type { Patient } from "@/lib/api"
 import { PatientOverlay } from "@/components/dashboard/patient-overlay"
-import { scanNfcTag, createPatient } from "@/lib/api"
-import { useSerial } from "@/hooks/use-serial"
+import { scanNfcTag } from "@/lib/api"
+import { useSerialContext } from "@/contexts/serial-context"
 
 // Ambient concentric rings config
 const AMBIENT_RINGS = [
@@ -30,13 +22,6 @@ export function NfcScanView() {
   const [isScanning, setIsScanning] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
   const [emptyCardTagId, setEmptyCardTagId] = useState<string | null>(null)
-  const [addPatientOpen, setAddPatientOpen] = useState(false)
-  const [addFirstName, setAddFirstName] = useState("")
-  const [addLastName, setAddLastName] = useState("")
-  const [addRoom, setAddRoom] = useState("")
-  const [addNfcIdManual, setAddNfcIdManual] = useState("")
-  const [addPatientLoading, setAddPatientLoading] = useState(false)
-  const [addPatientError, setAddPatientError] = useState<string | null>(null)
   const [ripples, setRipples] = useState<number[]>([])
   const rippleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -46,9 +31,6 @@ export function NfcScanView() {
     for (let i = 0; i < 8; i++) id += chars[Math.floor(Math.random() * chars.length)]
     return id
   }, [])
-
-  const nfcIdFromScan = emptyCardTagId != null && emptyCardTagId.trim() !== ""
-  const nfcIdForSubmit = nfcIdFromScan ? emptyCardTagId!.trim() : addNfcIdManual.trim()
 
   const handleTagReadFromSerial = useCallback(async (tagId: string) => {
     setScanError(null)
@@ -60,7 +42,7 @@ export function NfcScanView() {
         const generatedId = generateRandomNfcId()
         await new Promise((resolve) => setTimeout(resolve, 400))
         setEmptyCardTagId(generatedId)
-        setScanError("This card has no ID. A new ID was generated. Add a patient for this card, then use Add/Edit patient to write the ID to the tag.")
+        setScanError("This card has no ID. A new ID was generated. Add a patient (full form) and then scan a tag to write the ID to the wristband.")
         return
       }
       const patient = await scanNfcTag(tagId)
@@ -75,54 +57,20 @@ export function NfcScanView() {
     }
   }, [generateRandomNfcId])
 
-  const handleOpenAddPatient = useCallback(() => {
-    setAddFirstName("")
-    setAddLastName("")
-    setAddRoom("")
-    setAddPatientError(null)
-    setAddNfcIdManual(nfcIdFromScan ? "" : (emptyCardTagId ?? ""))
-    setAddPatientOpen(true)
-  }, [emptyCardTagId, nfcIdFromScan])
-
-  const handleOpenAddPatientManual = useCallback(() => {
-    setEmptyCardTagId(null)
-    setAddFirstName("")
-    setAddLastName("")
-    setAddRoom("")
-    setAddNfcIdManual("")
-    setAddPatientError(null)
-    setAddPatientOpen(true)
-  }, [])
-
-  const handleSubmitAddPatient = useCallback(async () => {
-    if (!nfcIdForSubmit || !addFirstName.trim() || !addLastName.trim()) return
-    setAddPatientError(null)
-    setAddPatientLoading(true)
-    try {
-      const patient = await createPatient({
-        nfcId: nfcIdForSubmit,
-        firstName: addFirstName.trim(),
-        lastName: addLastName.trim(),
-        room: addRoom.trim() || undefined,
-      })
-      setAddPatientOpen(false)
-      setScanError(null)
-      setEmptyCardTagId(null)
-      setScannedPatient(patient)
-    } catch (err) {
-      setAddPatientError(err instanceof Error ? err.message : "Failed to add patient.")
-    } finally {
-      setAddPatientLoading(false)
-    }
-  }, [nfcIdForSubmit, addFirstName, addLastName, addRoom])
-
   const {
     isSupported: serialSupported,
     isConnected: serialConnected,
+    isReconnecting: serialReconnecting,
     error: serialError,
     connect: serialConnect,
     disconnect: serialDisconnect,
-  } = useSerial(handleTagReadFromSerial)
+    setOnTagRead,
+  } = useSerialContext()
+
+  useEffect(() => {
+    setOnTagRead(handleTagReadFromSerial)
+    return () => setOnTagRead(null)
+  }, [handleTagReadFromSerial, setOnTagRead])
 
   const handleClose = useCallback(() => {
     setScannedPatient(null)
@@ -178,11 +126,13 @@ export function NfcScanView() {
       <p className="mb-2 text-sm font-medium uppercase tracking-widest text-muted-foreground">
         {isScanning
           ? "Scanning..."
-          : serialConnected
-            ? "Hold wristband to reader"
-            : serialSupported
-              ? "Tap the button to connect Arduino"
-              : "Web Serial not supported (use Chrome/Edge)"}
+          : serialReconnecting
+            ? "Connecting to saved reader…"
+            : serialConnected
+              ? "Hold wristband to reader"
+              : serialSupported
+                ? "Tap the button to connect Arduino"
+                : "Web Serial not supported (use Chrome/Edge)"}
       </p>
 
       <h2 className="mb-10 text-center text-2xl font-bold font-[family-name:var(--font-heading)] text-foreground md:text-3xl text-balance">
@@ -226,9 +176,9 @@ export function NfcScanView() {
 
         {/* Main button: connect Arduino when disconnected; when connected, scanning is via reader only */}
         <button
-          onClick={serialSupported && !serialConnected ? serialConnect : undefined}
+          onClick={serialSupported && !serialConnected && !serialReconnecting ? serialConnect : undefined}
           disabled={
-            (serialSupported && serialConnected) || isScanning || !!scannedPatient
+            (serialSupported && (serialConnected || serialReconnecting)) || isScanning || !!scannedPatient
           }
           className="group relative z-10 flex h-56 w-56 cursor-pointer items-center justify-center rounded-full focus:outline-none disabled:cursor-default disabled:opacity-100 md:h-64 md:w-64"
           aria-label={
@@ -290,11 +240,13 @@ export function NfcScanView() {
             >
               {isScanning
                 ? "Reading..."
-                : serialConnected
-                  ? "Hold wristband to reader"
-                  : serialSupported
-                    ? "Connect to Arduino"
-                    : "Scan Here"}
+                : serialReconnecting
+                  ? "Connecting…"
+                  : serialConnected
+                    ? "Hold wristband to reader"
+                    : serialSupported
+                      ? "Connect to Arduino"
+                      : "Scan Here"}
             </span>
           </div>
         </button>
@@ -311,101 +263,25 @@ export function NfcScanView() {
           <p className="text-center text-sm text-destructive">
             {scanError ?? serialError}
           </p>
-          {emptyCardTagId !== null && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleOpenAddPatient}
-              className="gap-2 border-primary/40 bg-primary/5 text-primary hover:bg-primary/10"
-            >
-              <UserPlus className="h-4 w-4" />
-              {emptyCardTagId.trim() ? "Add patient for this card" : "Add patient (enter ID)"}
+          {emptyCardTagId != null && emptyCardTagId.trim() !== "" && (
+            <Button variant="outline" size="sm" className="gap-2 border-primary/40 bg-primary/5 text-primary hover:bg-primary/10" asChild>
+              <Link href={`/dashboard/patients/edit?nfcId=${encodeURIComponent(emptyCardTagId)}`}>
+                <UserPlus className="h-4 w-4" />
+                Add patient for this card (full form)
+              </Link>
             </Button>
           )}
         </div>
       )}
 
       <div className="mt-4">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleOpenAddPatientManual}
-          className="gap-2 text-muted-foreground hover:text-foreground"
-        >
-          <UserPlus className="h-4 w-4" />
-          Add patient
+        <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground" asChild>
+          <Link href="/dashboard/patients/edit">
+            <UserPlus className="h-4 w-4" />
+            Add patient
+          </Link>
         </Button>
       </div>
-
-      {/* Add patient dialog (when card is empty or manual add) */}
-      <Dialog open={addPatientOpen} onOpenChange={setAddPatientOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {nfcIdFromScan ? "Add patient for this card" : "Add patient"}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="add-nfc">NFC card ID</Label>
-              <Input
-                id="add-nfc"
-                value={nfcIdFromScan ? (emptyCardTagId ?? "") : addNfcIdManual}
-                readOnly={nfcIdFromScan}
-                onChange={nfcIdFromScan ? undefined : (e) => setAddNfcIdManual(e.target.value)}
-                placeholder={nfcIdFromScan ? undefined : "Enter or scan card ID"}
-                className={nfcIdFromScan ? "bg-muted font-mono text-sm" : "font-mono text-sm"}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="add-first">First name</Label>
-              <Input
-                id="add-first"
-                placeholder="First name"
-                value={addFirstName}
-                onChange={(e) => setAddFirstName(e.target.value)}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="add-last">Last name</Label>
-              <Input
-                id="add-last"
-                placeholder="Last name"
-                value={addLastName}
-                onChange={(e) => setAddLastName(e.target.value)}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="add-room">Room (optional)</Label>
-              <Input
-                id="add-room"
-                placeholder="e.g. 204"
-                value={addRoom}
-                onChange={(e) => setAddRoom(e.target.value)}
-              />
-            </div>
-            {addPatientError && (
-              <p className="text-sm text-destructive">{addPatientError}</p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddPatientOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSubmitAddPatient}
-              disabled={
-                addPatientLoading ||
-                !nfcIdForSubmit ||
-                !addFirstName.trim() ||
-                !addLastName.trim()
-              }
-            >
-              {addPatientLoading ? "Adding..." : "Add patient"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Patient data overlay */}
       {scannedPatient && (

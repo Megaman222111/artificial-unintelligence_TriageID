@@ -209,8 +209,7 @@ export function PatientList() {
                     <Nfc className="h-3 w-3" />
                     {patient.nfcId}
                   </span>
-                  <span>Room: {patient.room}</span>
-                  <span>{patient.primaryDiagnosis}</span>
+                  <span>{patient.gender}, {patient.bloodType}</span>
                 </div>
               </div>
             </div>

@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { getAccessToken } from "@/lib/auth"
+import { SerialProvider } from "@/contexts/serial-context"
 
 export default function DashboardLayout({
   children,
@@ -33,5 +34,5 @@ export default function DashboardLayout({
     return null
   }
 
-  return <>{children}</>
+  return <SerialProvider>{children}</SerialProvider>
 }

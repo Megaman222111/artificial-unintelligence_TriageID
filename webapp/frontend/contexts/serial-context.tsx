@@ -1,9 +1,11 @@
 "use client"
 
-import { useState, useCallback, useRef, useEffect } from "react"
+import { createContext, useCallback, useContext, useRef, useState, useEffect } from "react"
 
 const BAUD = 115200
+// Arduino menu mode: "User ID: \"...\""; command mode: "OK|READ|userid"
 const USER_ID_REGEX = /User ID:\s*"([^"]*)"/
+const OK_READ_REGEX = /^OK\|READ\|(.+)$/
 const SERIAL_FILTER_COOKIE = "triageid_serial_filter"
 const COOKIE_MAX_AGE_DAYS = 365
 
@@ -54,18 +56,33 @@ function clearSerialFilterCookie(): void {
   document.cookie = `${SERIAL_FILTER_COOKIE}=; path=/; max-age=0`
 }
 
-export function useSerial(onTagRead: (tagId: string) => void) {
+export interface SerialContextValue {
+  isSupported: boolean
+  isConnected: boolean
+  isReconnecting: boolean
+  error: string | null
+  connect: () => Promise<void>
+  disconnect: () => Promise<void>
+  send: (text: string) => Promise<void>
+  setOnTagRead: (callback: ((tagId: string) => void) | null) => void
+}
+
+const SerialContext = createContext<SerialContextValue | null>(null)
+
+export function SerialProvider({ children }: { children: React.ReactNode }) {
   const [isSupported, setIsSupported] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
   const [isReconnecting, setIsReconnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const onTagReadRef = useRef(onTagRead)
+  const onTagReadRef = useRef<((tagId: string) => void) | null>(null)
   const portRef = useRef<SerialPort | null>(null)
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null)
   const writerRef = useRef<WritableStreamDefaultWriter<Uint8Array> | null>(null)
   const abortRef = useRef(false)
 
-  onTagReadRef.current = onTagRead
+  const setOnTagRead = useCallback((callback: ((tagId: string) => void) | null) => {
+    onTagReadRef.current = callback
+  }, [])
 
   useEffect(() => {
     setIsSupported(typeof navigator !== "undefined" && "serial" in navigator)
@@ -101,11 +118,14 @@ export function useSerial(onTagRead: (tagId: string) => void) {
           for (const line of lines) {
             const t = line.trim()
             if (!t) continue
-            const match = t.match(USER_ID_REGEX)
-            if (match) {
-              const id = (match[1] ?? "").trim()
-              onTagReadRef.current(id)
+            let id: string | null = null
+            const userMatch = t.match(USER_ID_REGEX)
+            if (userMatch) id = (userMatch[1] ?? "").trim()
+            else {
+              const okMatch = t.match(OK_READ_REGEX)
+              if (okMatch) id = (okMatch[1] ?? "").trim()
             }
+            if (id != null && id !== "") onTagReadRef.current?.(id)
           }
         }
       } catch (e) {
@@ -221,14 +241,37 @@ export function useSerial(onTagRead: (tagId: string) => void) {
     setError(null)
   }, [])
 
-  useEffect(() => {
-    return () => {
-      abortRef.current = true
-      if (portRef.current) {
-        portRef.current.close().catch(() => {})
-      }
-    }
-  }, [])
+  const value: SerialContextValue = {
+    isSupported,
+    isConnected,
+    isReconnecting,
+    error,
+    connect,
+    disconnect,
+    send,
+    setOnTagRead,
+  }
 
-  return { isSupported, isConnected, isReconnecting, error, connect, disconnect, send }
+  return (
+    <SerialContext.Provider value={value}>
+      {children}
+    </SerialContext.Provider>
+  )
+}
+
+export function useSerialContext(): SerialContextValue {
+  const ctx = useContext(SerialContext)
+  if (!ctx) {
+    return {
+      isSupported: false,
+      isConnected: false,
+      isReconnecting: false,
+      error: null,
+      connect: async () => {},
+      disconnect: async () => {},
+      send: async () => {},
+      setOnTagRead: () => {},
+    }
+  }
+  return ctx
 }

@@ -5,10 +5,6 @@ import {
   ArrowLeft,
   Nfc,
   ShieldCheck,
-  Heart,
-  Thermometer,
-  Activity,
-  Droplets,
   Phone,
   User,
   Pill,
@@ -97,7 +93,6 @@ export function PatientDetail({ patient }: { patient: Patient }) {
               </span>
               <span>ID: {patient.id}</span>
               <span>{patient.gender}, {getAge(patient.dateOfBirth)} yrs</span>
-              <span>Room: {patient.room}</span>
             </div>
           </div>
         </div>
@@ -105,63 +100,6 @@ export function PatientDetail({ patient }: { patient: Patient }) {
         <div className="flex items-center gap-2 rounded-lg bg-primary/5 px-4 py-2">
           <ShieldCheck className="h-4 w-4 text-primary" />
           <span className="text-sm font-medium text-primary">NFC Verified</span>
-        </div>
-      </div>
-
-      {/* Vital signs */}
-      <div>
-        <h2 className="mb-3 text-lg font-semibold font-[family-name:var(--font-heading)] text-foreground">
-          Vital Signs
-        </h2>
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-              <Heart className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Heart Rate</p>
-              <p className="text-lg font-bold text-foreground">
-                {patient.vitalSigns.heartRate}{" "}
-                <span className="text-xs font-normal text-muted-foreground">bpm</span>
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent">
-              <Activity className="h-5 w-5 text-accent-foreground" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Blood Pressure</p>
-              <p className="text-lg font-bold text-foreground">
-                {patient.vitalSigns.bloodPressure}{" "}
-                <span className="text-xs font-normal text-muted-foreground">mmHg</span>
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-              <Thermometer className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Temperature</p>
-              <p className="text-lg font-bold text-foreground">
-                {patient.vitalSigns.temperature}
-                <span className="text-xs font-normal text-muted-foreground">{" \u00B0F"}</span>
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent">
-              <Droplets className="h-5 w-5 text-accent-foreground" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">O2 Saturation</p>
-              <p className="text-lg font-bold text-foreground">
-                {patient.vitalSigns.oxygenSaturation}
-                <span className="text-xs font-normal text-muted-foreground">%</span>
-              </p>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -195,15 +133,6 @@ export function PatientDetail({ patient }: { patient: Patient }) {
                 <p className="text-xs text-muted-foreground">Blood Type</p>
                 <p className="text-sm font-bold text-primary">{patient.bloodType}</p>
               </div>
-            </div>
-
-            <Separator className="my-4" />
-
-            <div>
-              <p className="text-xs text-muted-foreground">Primary Diagnosis</p>
-              <p className="mt-1 text-sm font-medium text-foreground">
-                {patient.primaryDiagnosis}
-              </p>
             </div>
 
             <Separator className="my-4" />
@@ -280,7 +209,7 @@ export function PatientDetail({ patient }: { patient: Patient }) {
               Current Medications
             </h2>
             <div className="flex flex-col gap-3">
-              {patient.medications.map((med, index) => (
+              {(patient.medications ?? []).map((med, index) => (
                 <div
                   key={index}
                   className="flex items-center justify-between rounded-lg bg-muted/50 p-3"
@@ -295,33 +224,61 @@ export function PatientDetail({ patient }: { patient: Patient }) {
             </div>
           </div>
 
-          {/* Insurance */}
+          {/* Insurance (optional) */}
           <div className="rounded-xl border border-border bg-card p-6">
             <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold font-[family-name:var(--font-heading)] text-foreground">
               <CreditCard className="h-5 w-5 text-primary" />
-              Insurance Information
+              Insurance
             </h2>
             <div className="flex flex-col gap-3">
-              <div className="flex items-start gap-3">
-                <Building className="mt-0.5 h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="text-xs text-muted-foreground">Provider</p>
-                  <p className="text-sm font-medium text-foreground">
-                    {patient.insuranceProvider}
-                  </p>
+              {patient.useAlbertaHealthCard ? (
+                <div className="flex flex-col gap-1">
+                  <p className="text-sm font-medium text-foreground">Alberta Health Card</p>
+                  {patient.albertaHealthCardNumber && (
+                    <p className="text-sm text-muted-foreground">{patient.albertaHealthCardNumber}</p>
+                  )}
                 </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <CreditCard className="mt-0.5 h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="text-xs text-muted-foreground">Policy ID</p>
-                  <p className="text-sm font-medium text-foreground">
-                    {patient.insuranceId}
-                  </p>
-                </div>
-              </div>
+              ) : (patient.insuranceProvider || patient.insuranceId) ? (
+                <>
+                  {patient.insuranceProvider && (
+                    <div className="flex items-start gap-3">
+                      <Building className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Provider</p>
+                        <p className="text-sm font-medium text-foreground">{patient.insuranceProvider}</p>
+                      </div>
+                    </div>
+                  )}
+                  {patient.insuranceId && (
+                    <div className="flex items-start gap-3">
+                      <CreditCard className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Policy ID</p>
+                        <p className="text-sm font-medium text-foreground">{patient.insuranceId}</p>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">No insurance on file</p>
+              )}
             </div>
           </div>
+
+          {/* Current prescriptions */}
+          {(patient.currentPrescriptions?.length ?? 0) > 0 && (
+            <div className="rounded-xl border border-border bg-card p-6">
+              <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold font-[family-name:var(--font-heading)] text-foreground">
+                <Pill className="h-5 w-5 text-primary" />
+                Current Prescriptions
+              </h2>
+              <ul className="flex flex-col gap-2">
+                {(patient.currentPrescriptions ?? []).map((item, index) => (
+                  <li key={index} className="rounded-lg bg-muted/50 px-3 py-2 text-sm text-foreground">{item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* Medical history */}
           <div className="rounded-xl border border-border bg-card p-6">
@@ -330,7 +287,7 @@ export function PatientDetail({ patient }: { patient: Patient }) {
               Medical History
             </h2>
             <ul className="flex flex-col gap-2">
-              {patient.medicalHistory.map((item, index) => (
+              {(patient.medicalHistory ?? []).map((item, index) => (
                 <li
                   key={index}
                   className="flex items-start gap-2 text-sm text-foreground"
@@ -342,6 +299,24 @@ export function PatientDetail({ patient }: { patient: Patient }) {
             </ul>
           </div>
 
+          {/* Past medical history */}
+          {(patient.pastMedicalHistory?.length ?? 0) > 0 && (
+            <div className="rounded-xl border border-border bg-card p-6">
+              <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold font-[family-name:var(--font-heading)] text-foreground">
+                <FileText className="h-5 w-5 text-primary" />
+                Past Medical History
+              </h2>
+              <ul className="flex flex-col gap-2">
+                {(patient.pastMedicalHistory ?? []).map((item, index) => (
+                  <li key={index} className="flex items-start gap-2 text-sm text-foreground">
+                    <span className="mt-2 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* Clinical notes */}
           <div className="rounded-xl border border-border bg-card p-6">
             <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold font-[family-name:var(--font-heading)] text-foreground">
@@ -349,7 +324,7 @@ export function PatientDetail({ patient }: { patient: Patient }) {
               Clinical Notes
             </h2>
             <div className="flex flex-col gap-3">
-              {patient.notes.map((note, index) => (
+              {(patient.notes ?? []).map((note, index) => (
                 <div
                   key={index}
                   className="rounded-lg border border-border bg-background p-3 text-sm text-foreground"

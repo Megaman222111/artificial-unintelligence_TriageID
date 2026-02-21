@@ -30,6 +30,7 @@ def api_root(request):
             "/api/auth/login/",
             "/api/auth/me/",
             "/api/patients/",
+            "/api/patients/ai-overview/",
             "/api/patients/<id>/",
             "/api/patients/by-nfc/<nfc_id>/",
             "/api/nfc/scan/",

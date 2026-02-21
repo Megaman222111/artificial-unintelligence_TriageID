@@ -48,9 +48,11 @@ export async function login(email: string, password: string): Promise<{ user: Au
           : `Login failed (${res.status})`
     throw new Error(message)
   }
+  const tokenRaw =
+    data.accessToken ?? data.access_token
   const token =
-    data.accessToken != null && typeof data.accessToken === "string"
-      ? data.accessToken.trim()
+    tokenRaw != null && typeof tokenRaw === "string"
+      ? tokenRaw.trim()
       : ""
   const user = data.user as AuthUser
   if (token) setAccessToken(token)

@@ -17,6 +17,7 @@ def patient_detail(request, patient_id: str):
 urlpatterns = [
     path("", views.patient_list),
     path("create/", views.patient_create),
+    path("ai-overview/", views.patient_ai_overview),
     path("by-nfc/<str:nfc_id>/", views.patient_by_nfc),
     path("<str:patient_id>/", patient_detail),
 ]

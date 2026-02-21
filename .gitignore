@@ -13,6 +13,8 @@ venv/
 # Django / DB
 webapp/data/
 *.sqlite3
+webapp/.env
+.env
 
 # OS / editor
 .DS_Store

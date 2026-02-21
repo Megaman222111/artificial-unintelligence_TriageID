@@ -11,8 +11,10 @@ export interface Patient {
   admissionDate: string
   allergies: string[]
   primaryDiagnosis: string
-  insuranceProvider: string
-  insuranceId: string
+  insuranceProvider?: string
+  insuranceId?: string
+  useAlbertaHealthCard?: boolean
+  albertaHealthCardNumber?: string
   emergencyContact: {
     name: string
     relationship: string
@@ -23,13 +25,9 @@ export interface Patient {
     dosage: string
     frequency: string
   }[]
-  vitalSigns: {
-    heartRate: number
-    bloodPressure: string
-    temperature: number
-    oxygenSaturation: number
-  }
+  currentPrescriptions?: string[]
   medicalHistory: string[]
+  pastMedicalHistory?: string[]
   notes: string[]
 }
 
@@ -84,6 +82,30 @@ export async function getPatientByNfcId(nfcId: string): Promise<Patient | null> 
   }
 }
 
+/** Get AI-generated clinical overview for a patient (Ark Labs). */
+export async function getPatientAiOverview(patientId: string): Promise<string> {
+  const res = await fetch(`${API_BASE_URL}/api/patients/ai-overview/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {}),
+    },
+    body: JSON.stringify({ patient_id: patientId }),
+    cache: "no-store",
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const message =
+      typeof body.error === "string"
+        ? body.error
+        : typeof body.detail === "string"
+          ? body.detail
+          : `AI overview failed (${res.status})`
+    throw new Error(message)
+  }
+  return typeof body.overview === "string" ? body.overview : ""
+}
+
 /** Look up patient by NFC tag id read from Arduino. tagId must come from the reader; backend only returns patients that exist for that nfc_id. */
 export async function scanNfcTag(tagId: string): Promise<Patient | null> {
   try {
@@ -114,8 +136,11 @@ export async function createPatient(data: {
   insuranceId?: string
   emergencyContact?: Patient["emergencyContact"]
   medications?: Patient["medications"]
-  vitalSigns?: Patient["vitalSigns"]
+  currentPrescriptions?: string[]
   medicalHistory?: string[]
+  pastMedicalHistory?: string[]
+  useAlbertaHealthCard?: boolean
+  albertaHealthCardNumber?: string
   notes?: string[]
 }): Promise<Patient> {
   const headers: Record<string, string> = {

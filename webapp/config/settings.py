@@ -10,10 +10,15 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+load_dotenv(BASE_DIR / ".env")
 
 
 # Quick-start development settings - unsuitable for production
@@ -27,6 +32,11 @@ DEBUG = True
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "*"]
 
+# Ark Labs API for patient AI overview (OpenAI-compatible chat completions)
+ARK_LABS_API_URL = os.environ.get("ARK_LABS_API_URL", "https://api.ark-labs.cloud/api/v1/chat/completions").strip()
+_raw_key = os.environ.get("ARK_LABS_API_KEY", "").strip().replace("\r", "").replace("\n", "")
+ARK_LABS_API_KEY = _raw_key.strip("'\"").strip() if _raw_key else ""
+ARK_LABS_MODEL = os.environ.get("ARK_LABS_MODEL", "gpt-4o").strip()
 
 # Application definition
 
@@ -87,11 +97,13 @@ DATABASES = {
     }
 }
 
-# CORS: allow dev app (Next.js on localhost:3000) and any origin when DEBUG
+# CORS: allow dev app (Next.js on 3000/3001) and any origin when DEBUG
 CORS_ALLOW_ALL_ORIGINS = DEBUG
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
 ]
 # Required so browser sends Authorization header on cross-origin /api/auth/me/
 CORS_ALLOW_HEADERS = [

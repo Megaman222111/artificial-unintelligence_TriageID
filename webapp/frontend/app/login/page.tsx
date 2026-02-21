@@ -2,16 +2,20 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Eye, EyeOff, ArrowRight, Shield } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { login } from "@/lib/auth"
+import { login, getAccessToken } from "@/lib/auth"
 
 export default function LoginPage() {
   const router = useRouter()
   const [showPassword, setShowPassword] = useState(false)
+
+  useEffect(() => {
+    if (getAccessToken()) router.replace("/dashboard")
+  }, [router])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [email, setEmail] = useState("")
@@ -23,9 +27,15 @@ export default function LoginPage() {
     setIsLoading(true)
     try {
       await login(email, password)
-      window.location.href = "/dashboard"
+      // Full-page redirect so dashboard layout reliably sees the token in localStorage
+      if (typeof window !== "undefined" && getAccessToken()) {
+        window.location.href = "/dashboard"
+        return
+      }
+      router.replace("/dashboard")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign in failed.")
+    } finally {
       setIsLoading(false)
     }
   }
@@ -95,7 +105,7 @@ export default function LoginPage() {
           </div>
 
           {error && (
-            <p className="text-sm text-destructive">{error}</p>
+            <p className="text-sm text-destructive" role="alert">{error}</p>
           )}
           <Button
             type="submit"

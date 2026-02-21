@@ -1,19 +1,21 @@
 "use client"
 
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Usb, ArrowLeft, Loader2 } from "lucide-react"
+import { DatePicker } from "@/components/ui/date-picker"
+import { Usb, ArrowLeft, Loader2, Plus, X } from "lucide-react"
 import type { Patient } from "@/lib/api"
 import {
   getPatientByNfcId,
   createPatient,
   updatePatient,
 } from "@/lib/api"
-import { useSerial } from "@/hooks/use-serial"
+import { useSerialContext } from "@/contexts/serial-context"
 
 const emptyForm = (nfcId: string): Partial<Patient> => ({
   id: nfcId,
@@ -24,21 +26,17 @@ const emptyForm = (nfcId: string): Partial<Patient> => ({
   gender: "",
   bloodType: "",
   status: "active",
-  room: "",
   admissionDate: "",
   allergies: [],
-  primaryDiagnosis: "",
   insuranceProvider: "",
   insuranceId: "",
+  useAlbertaHealthCard: false,
+  albertaHealthCardNumber: "",
   emergencyContact: { name: "", relationship: "", phone: "" },
   medications: [],
-  vitalSigns: {
-    heartRate: 0,
-    bloodPressure: "",
-    temperature: 0,
-    oxygenSaturation: 0,
-  },
+  currentPrescriptions: [],
   medicalHistory: [],
+  pastMedicalHistory: [],
   notes: [],
 })
 
@@ -46,21 +44,39 @@ function patientToForm(p: Patient): Partial<Patient> {
   return {
     ...p,
     emergencyContact: p.emergencyContact || { name: "", relationship: "", phone: "" },
-    vitalSigns: p.vitalSigns || { heartRate: 0, bloodPressure: "", temperature: 0, oxygenSaturation: 0 },
     allergies: p.allergies || [],
     medications: p.medications || [],
+    currentPrescriptions: p.currentPrescriptions || [],
     medicalHistory: p.medicalHistory || [],
+    pastMedicalHistory: p.pastMedicalHistory || [],
     notes: p.notes || [],
   }
 }
 
 export default function PatientEditPage() {
+  const searchParams = useSearchParams()
   const [nfcIdInput, setNfcIdInput] = useState("")
   const [loadedPatient, setLoadedPatient] = useState<Patient | null>(null)
   const [form, setForm] = useState<Partial<Patient>>(emptyForm(""))
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
+  const [pendingWriteNfcId, setPendingWriteNfcId] = useState<string | null>(null)
+  const [writeToTagDone, setWriteToTagDone] = useState(false)
+  const pendingWriteNfcIdRef = useRef<string | null>(null)
+  const serialSendRef = useRef<(text: string) => Promise<void>>(async () => {})
+
+  useEffect(() => {
+    pendingWriteNfcIdRef.current = pendingWriteNfcId
+  }, [pendingWriteNfcId])
+
+  const nfcIdFromQuery = searchParams.get("nfcId")
+  useEffect(() => {
+    if (nfcIdFromQuery?.trim()) {
+      setNfcIdInput(nfcIdFromQuery.trim())
+      setForm((f) => ({ ...f, nfcId: nfcIdFromQuery.trim(), id: nfcIdFromQuery.trim() }))
+    }
+  }, [nfcIdFromQuery])
 
   const generateRandomNfcId = useCallback(() => {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -70,6 +86,15 @@ export default function PatientEditPage() {
   }, [])
 
   const handleTagRead = useCallback(async (tagId: string) => {
+    if (pendingWriteNfcIdRef.current != null && serialSendRef.current) {
+      const toWrite = pendingWriteNfcIdRef.current
+      setPendingWriteNfcId(null)
+      setWriteToTagDone(true)
+      await serialSendRef.current(`WRITE|${toWrite}`)
+      // Reset scanner to read mode so the next scan works
+      await serialSendRef.current("READ")
+      return
+    }
     setLoadError(null)
     const isEmptyCard = tagId.trim() === ""
     const idToUse = isEmptyCard ? generateRandomNfcId() : tagId
@@ -82,21 +107,16 @@ export default function PatientEditPage() {
       setLoadedPatient(null)
       setForm(emptyForm(idToUse))
     }
-    if (isEmptyCard) setLoadError("Card had no ID. A new ID was generated. Use \"Assign ID to empty tag\" to write it to the card.")
+    if (isEmptyCard) setLoadError("Card had no ID. A new ID was generated. After saving the patient, scan a tag to write the ID to the wristband.")
   }, [generateRandomNfcId])
 
-  const { isSupported: serialSupported, isConnected: serialConnected, connect: serialConnect, send: serialSend } = useSerial(handleTagRead)
+  const { isSupported: serialSupported, isConnected: serialConnected, isReconnecting: serialReconnecting, connect: serialConnect, send: serialSend, setOnTagRead } = useSerialContext()
+  serialSendRef.current = serialSend
 
-  const handleWriteToTag = useCallback(() => {
-    if (!serialSend) return
-    let id = nfcIdInput.trim()
-    if (!id) {
-      id = generateRandomNfcId()
-      setNfcIdInput(id)
-      setForm((f) => ({ ...f, nfcId: id, id }))
-    }
-    serialSend(`WRITE|${id}`)
-  }, [nfcIdInput, serialSend, generateRandomNfcId])
+  useEffect(() => {
+    setOnTagRead(handleTagRead)
+    return () => setOnTagRead(null)
+  }, [handleTagRead, setOnTagRead])
 
   const handleLoadByNfcId = useCallback(async () => {
     const id = nfcIdInput.trim()
@@ -121,7 +141,12 @@ export default function PatientEditPage() {
   }, [])
 
   const handleSave = useCallback(async () => {
-    const nfcId = (form.nfcId || nfcIdInput).trim()
+    let nfcId = (form.nfcId || nfcIdInput).trim()
+    if (!loadedPatient && !nfcId) {
+      nfcId = generateRandomNfcId()
+      setNfcIdInput(nfcId)
+      setForm((f) => ({ ...f, nfcId, id: nfcId }))
+    }
     const firstName = (form.firstName || "").trim()
     const lastName = (form.lastName || "").trim()
     if (!nfcId || !firstName || !lastName) return
@@ -136,39 +161,43 @@ export default function PatientEditPage() {
           gender: form.gender ?? "",
           bloodType: form.bloodType ?? "",
           status: (form.status as Patient["status"]) ?? "active",
-          room: form.room ?? "",
           admissionDate: form.admissionDate ?? "",
           allergies: form.allergies ?? [],
-          primaryDiagnosis: form.primaryDiagnosis ?? "",
           insuranceProvider: form.insuranceProvider ?? "",
           insuranceId: form.insuranceId ?? "",
+          useAlbertaHealthCard: form.useAlbertaHealthCard ?? false,
+          albertaHealthCardNumber: form.albertaHealthCardNumber ?? "",
           emergencyContact: form.emergencyContact ?? {},
           medications: form.medications ?? [],
-          vitalSigns: form.vitalSigns ?? {},
+          currentPrescriptions: form.currentPrescriptions ?? [],
           medicalHistory: form.medicalHistory ?? [],
+          pastMedicalHistory: form.pastMedicalHistory ?? [],
           notes: form.notes ?? [],
         })
       } else {
-        await createPatient({
+        const created = await createPatient({
           nfcId,
           firstName,
           lastName,
-          room: form.room || undefined,
           dateOfBirth: form.dateOfBirth || undefined,
           gender: form.gender || undefined,
           bloodType: form.bloodType || undefined,
           status: (form.status as Patient["status"]) || "active",
           admissionDate: form.admissionDate || undefined,
           allergies: form.allergies?.length ? form.allergies : undefined,
-          primaryDiagnosis: form.primaryDiagnosis || undefined,
           insuranceProvider: form.insuranceProvider || undefined,
           insuranceId: form.insuranceId || undefined,
+          useAlbertaHealthCard: form.useAlbertaHealthCard || undefined,
+          albertaHealthCardNumber: form.albertaHealthCardNumber?.trim() || undefined,
           emergencyContact: form.emergencyContact || undefined,
           medications: form.medications?.length ? form.medications : undefined,
-          vitalSigns: form.vitalSigns || undefined,
+          currentPrescriptions: form.currentPrescriptions?.length ? form.currentPrescriptions : undefined,
           medicalHistory: form.medicalHistory?.length ? form.medicalHistory : undefined,
+          pastMedicalHistory: form.pastMedicalHistory?.length ? form.pastMedicalHistory : undefined,
           notes: form.notes?.length ? form.notes : undefined,
         })
+        setPendingWriteNfcId(created.nfcId)
+        setWriteToTagDone(false)
       }
       setSaveSuccess(true)
       if (!loadedPatient) setLoadedPatient(null)
@@ -177,7 +206,7 @@ export default function PatientEditPage() {
     } finally {
       setSaving(false)
     }
-  }, [form, loadedPatient, nfcIdInput])
+  }, [form, loadedPatient, nfcIdInput, generateRandomNfcId])
 
   const ec = form.emergencyContact || { name: "", relationship: "", phone: "" }
 
@@ -216,26 +245,15 @@ export default function PatientEditPage() {
               Load patient
             </Button>
             {serialSupported && (
-              <>
-                <Button
-                  variant="outline"
-                  onClick={serialConnected ? undefined : serialConnect}
-                  className="gap-2"
-                  disabled={serialConnected}
-                >
-                  <Usb className="h-4 w-4" />
-                  {serialConnected ? "Reader connected" : "Connect reader"}
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={handleWriteToTag}
-                  className="gap-2 border-primary/40 bg-primary/5 text-primary hover:bg-primary/10"
-                  disabled={!serialConnected}
-                  title={nfcIdInput.trim() ? "Write this ID to tag (overwrites if tag already has an ID)" : "Assign a random ID to empty tag, then write it"}
-                >
-                  {nfcIdInput.trim() ? "Write ID to tag" : "Assign ID to empty tag"}
-                </Button>
-              </>
+              <Button
+                variant="outline"
+                onClick={serialConnected ? undefined : serialConnect}
+                className="gap-2"
+                disabled={serialConnected || serialReconnecting}
+              >
+                <Usb className="h-4 w-4" />
+                {serialReconnecting ? "Connecting to saved reader…" : serialConnected ? "Reader connected" : "Connect reader"}
+              </Button>
             )}
           </div>
           {loadedPatient && (
@@ -245,7 +263,19 @@ export default function PatientEditPage() {
             <p className="mt-2 text-sm text-muted-foreground">No patient for this ID — fill form to add.</p>
           )}
           {loadError && <p className="mt-2 text-sm text-destructive">{loadError}</p>}
-          {saveSuccess && <p className="mt-2 text-sm text-primary">Saved successfully.</p>}
+          {saveSuccess && !pendingWriteNfcId && !writeToTagDone && <p className="mt-2 text-sm text-primary">Saved successfully.</p>}
+          {saveSuccess && pendingWriteNfcId && (
+            <div className="mt-4 rounded-lg border border-primary/30 bg-primary/5 p-4">
+              <p className="font-medium text-primary">Patient created. Scan a tag to attach this patient&apos;s ID to the wristband.</p>
+              <p className="mt-1 text-sm text-muted-foreground">Hold the wristband to the reader; the ID will be written automatically.</p>
+              <div className="mt-3 flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => { setPendingWriteNfcId(null); setWriteToTagDone(false) }}>
+                  Skip
+                </Button>
+              </div>
+            </div>
+          )}
+          {writeToTagDone && <p className="mt-2 text-sm text-primary">ID written to tag. The wristband is now linked to this patient.</p>}
         </div>
 
         <div className="space-y-6 rounded-xl border border-border bg-card p-6">
@@ -274,11 +304,11 @@ export default function PatientEditPage() {
             </div>
             <div>
               <Label htmlFor="dob">Date of birth</Label>
-              <Input
+              <DatePicker
                 id="dob"
                 value={form.dateOfBirth ?? ""}
-                onChange={(e) => updateField("dateOfBirth", e.target.value)}
-                placeholder="YYYY-MM-DD"
+                onChange={(v) => updateField("dateOfBirth", v)}
+                placeholder="Pick date of birth"
               />
             </div>
             <div>
@@ -313,53 +343,182 @@ export default function PatientEditPage() {
               </select>
             </div>
             <div>
-              <Label htmlFor="room">Room</Label>
-              <Input
-                id="room"
-                value={form.room ?? ""}
-                onChange={(e) => updateField("room", e.target.value)}
-                placeholder="Room"
-              />
-            </div>
-            <div>
               <Label htmlFor="admission">Admission date</Label>
-              <Input
+              <DatePicker
                 id="admission"
                 value={form.admissionDate ?? ""}
-                onChange={(e) => updateField("admissionDate", e.target.value)}
-                placeholder="YYYY-MM-DD"
+                onChange={(v) => updateField("admissionDate", v)}
+                placeholder="Pick admission date"
               />
+            </div>
+          </div>
+
+          {/* Allergies (optional) - list with + */}
+          <div>
+            <Label className="text-muted-foreground">Allergies (optional)</Label>
+            <div className="mt-1 space-y-2">
+              {(form.allergies ?? []).map((item, i) => (
+                <div key={i} className="flex gap-2">
+                  <Input
+                    value={item}
+                    onChange={(e) => {
+                      const arr = [...(form.allergies ?? [])]
+                      arr[i] = e.target.value
+                      updateField("allergies", arr)
+                    }}
+                    placeholder="Allergy"
+                    className="flex-1"
+                  />
+                  <Button type="button" variant="ghost" size="icon" className="shrink-0" onClick={() => updateField("allergies", (form.allergies ?? []).filter((_, j) => j !== i))}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => updateField("allergies", [...(form.allergies ?? []), ""])}>
+                <Plus className="h-3.5 w-3.5" /> Add allergy
+              </Button>
+            </div>
+          </div>
+
+          {/* Current prescriptions (optional) - list with + */}
+          <div>
+            <Label className="text-muted-foreground">Current prescriptions (optional)</Label>
+            <div className="mt-1 space-y-2">
+              {(form.currentPrescriptions ?? []).map((item, i) => (
+                <div key={i} className="flex gap-2">
+                  <Input
+                    value={item}
+                    onChange={(e) => {
+                      const arr = [...(form.currentPrescriptions ?? [])]
+                      arr[i] = e.target.value
+                      updateField("currentPrescriptions", arr)
+                    }}
+                    placeholder="e.g. Aspirin 81mg daily"
+                    className="flex-1"
+                  />
+                  <Button type="button" variant="ghost" size="icon" className="shrink-0" onClick={() => updateField("currentPrescriptions", (form.currentPrescriptions ?? []).filter((_, j) => j !== i))}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => updateField("currentPrescriptions", [...(form.currentPrescriptions ?? []), ""])}>
+                <Plus className="h-3.5 w-3.5" /> Add prescription
+              </Button>
+            </div>
+          </div>
+
+          {/* Medical history - list with + */}
+          <div>
+            <Label>Medical history</Label>
+            <div className="mt-1 space-y-2">
+              {(form.medicalHistory ?? []).map((item, i) => (
+                <div key={i} className="flex gap-2">
+                  <Input
+                    value={item}
+                    onChange={(e) => {
+                      const arr = [...(form.medicalHistory ?? [])]
+                      arr[i] = e.target.value
+                      updateField("medicalHistory", arr)
+                    }}
+                    placeholder="Condition or procedure"
+                    className="flex-1"
+                  />
+                  <Button type="button" variant="ghost" size="icon" className="shrink-0" onClick={() => updateField("medicalHistory", (form.medicalHistory ?? []).filter((_, j) => j !== i))}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => updateField("medicalHistory", [...(form.medicalHistory ?? []), ""])}>
+                <Plus className="h-3.5 w-3.5" /> Add
+              </Button>
+            </div>
+          </div>
+
+          {/* Past medical history - list with + */}
+          <div>
+            <Label>Past medical history</Label>
+            <div className="mt-1 space-y-2">
+              {(form.pastMedicalHistory ?? []).map((item, i) => (
+                <div key={i} className="flex gap-2">
+                  <Input
+                    value={item}
+                    onChange={(e) => {
+                      const arr = [...(form.pastMedicalHistory ?? [])]
+                      arr[i] = e.target.value
+                      updateField("pastMedicalHistory", arr)
+                    }}
+                    placeholder="Past condition or procedure"
+                    className="flex-1"
+                  />
+                  <Button type="button" variant="ghost" size="icon" className="shrink-0" onClick={() => updateField("pastMedicalHistory", (form.pastMedicalHistory ?? []).filter((_, j) => j !== i))}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => updateField("pastMedicalHistory", [...(form.pastMedicalHistory ?? []), ""])}>
+                <Plus className="h-3.5 w-3.5" /> Add
+              </Button>
             </div>
           </div>
 
           <div>
-            <Label htmlFor="diagnosis">Primary diagnosis</Label>
-            <Input
-              id="diagnosis"
-              value={form.primaryDiagnosis ?? ""}
-              onChange={(e) => updateField("primaryDiagnosis", e.target.value)}
-              placeholder="Primary diagnosis"
+            <Label htmlFor="notes">Notes (one per line)</Label>
+            <textarea
+              id="notes"
+              value={(form.notes ?? []).join("\n")}
+              onChange={(e) => updateField("notes", e.target.value.split("\n").map((s) => s.trim()).filter(Boolean))}
+              placeholder="One per line"
+              rows={2}
+              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             />
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="insurance-provider">Insurance provider</Label>
-              <Input
-                id="insurance-provider"
-                value={form.insuranceProvider ?? ""}
-                onChange={(e) => updateField("insuranceProvider", e.target.value)}
-                placeholder="Provider"
-              />
-            </div>
-            <div>
-              <Label htmlFor="insurance-id">Insurance ID</Label>
-              <Input
-                id="insurance-id"
-                value={form.insuranceId ?? ""}
-                onChange={(e) => updateField("insuranceId", e.target.value)}
-                placeholder="ID"
-              />
+          <div className="border-t border-border pt-6">
+            <h3 className="mb-3 text-sm font-semibold text-muted-foreground">Insurance (optional)</h3>
+            <div className="flex flex-col gap-3">
+              <label className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={form.useAlbertaHealthCard ?? false}
+                  onChange={(e) => updateField("useAlbertaHealthCard", e.target.checked)}
+                  className="h-4 w-4 rounded border-input"
+                />
+                <span className="text-sm">Alberta Health Card (no other insurance)</span>
+              </label>
+              {(form.useAlbertaHealthCard ?? false) && (
+                <div>
+                  <Label htmlFor="alberta-health-number">Alberta Health Card number</Label>
+                  <Input
+                    id="alberta-health-number"
+                    value={form.albertaHealthCardNumber ?? ""}
+                    onChange={(e) => updateField("albertaHealthCardNumber", e.target.value)}
+                    placeholder="e.g. 1234 567 890"
+                    className="mt-1 max-w-xs"
+                  />
+                </div>
+              )}
+              {!(form.useAlbertaHealthCard ?? false) && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="insurance-provider">Insurance provider</Label>
+                    <Input
+                      id="insurance-provider"
+                      value={form.insuranceProvider ?? ""}
+                      onChange={(e) => updateField("insuranceProvider", e.target.value)}
+                      placeholder="Provider"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="insurance-id">Insurance ID</Label>
+                    <Input
+                      id="insurance-id"
+                      value={form.insuranceId ?? ""}
+                      onChange={(e) => updateField("insuranceId", e.target.value)}
+                      placeholder="ID"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -391,69 +550,6 @@ export default function PatientEditPage() {
                 placeholder="Phone"
               />
             </div>
-          </div>
-
-          <div>
-            <Label htmlFor="allergies">Allergies (one per line)</Label>
-            <textarea
-              id="allergies"
-              value={(form.allergies ?? []).join("\n")}
-              onChange={(e) => updateField("allergies", e.target.value.split("\n").map((s) => s.trim()).filter(Boolean))}
-              placeholder="One per line"
-              rows={2}
-              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            />
-          </div>
-
-          <div>
-            <Label htmlFor="vitals">Vital signs (e.g. HR: 72, BP: 120/80, Temp: 98.6, O2: 98)</Label>
-            <Input
-              id="vitals"
-              value={form.vitalSigns ? [
-                form.vitalSigns.heartRate ? `HR: ${form.vitalSigns.heartRate}` : "",
-                form.vitalSigns.bloodPressure ? `BP: ${form.vitalSigns.bloodPressure}` : "",
-                form.vitalSigns.temperature ? `Temp: ${form.vitalSigns.temperature}` : "",
-                form.vitalSigns.oxygenSaturation ? `O2: ${form.vitalSigns.oxygenSaturation}` : "",
-              ].filter(Boolean).join(", ") : ""}
-              onChange={(e) => {
-                const s = e.target.value
-                const hr = /HR:\s*(\d+)/i.exec(s)?.[1]
-                const bp = /BP:\s*([\d/]+)/i.exec(s)?.[1]
-                const temp = /Temp:\s*([\d.]+)/i.exec(s)?.[1]
-                const o2 = /O2:\s*(\d+)/i.exec(s)?.[1]
-                updateField("vitalSigns", {
-                  heartRate: hr ? parseInt(hr, 10) : 0,
-                  bloodPressure: bp ?? "",
-                  temperature: temp ? parseFloat(temp) : 0,
-                  oxygenSaturation: o2 ? parseInt(o2, 10) : 0,
-                })
-              }}
-              placeholder="HR: 72, BP: 120/80, Temp: 98.6, O2: 98"
-            />
-          </div>
-
-          <div>
-            <Label htmlFor="med-history">Medical history (one per line)</Label>
-            <textarea
-              id="med-history"
-              value={(form.medicalHistory ?? []).join("\n")}
-              onChange={(e) => updateField("medicalHistory", e.target.value.split("\n").map((s) => s.trim()).filter(Boolean))}
-              placeholder="One per line"
-              rows={2}
-              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            />
-          </div>
-
-          <div>
-            <Label htmlFor="notes">Notes (one per line)</Label>
-            <textarea
-              id="notes"
-              value={(form.notes ?? []).join("\n")}
-              onChange={(e) => updateField("notes", e.target.value.split("\n").map((s) => s.trim()).filter(Boolean))}
-              placeholder="One per line"
-              rows={2}
-              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            />
           </div>
 
           <div className="flex gap-3 pt-4">
