@@ -5,8 +5,14 @@ import json
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST, require_http_methods
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
-from .models import UserProfile, Patient
+from risk_scoring.service import RiskScoringService
+
+from .models import UserProfile, Patient, PatientOutcomeEvent
+
+RISK_SERVICE = RiskScoringService()
 
 
 def _get_user_json(profile):
@@ -269,3 +275,100 @@ def patient_ai_overview(request):
         return JsonResponse({"detail": f"Patient '{patient_id}' not found."}, status=404)
 
     return JsonResponse({"overview": "Yet to be added."})
+
+
+@csrf_exempt
+@require_POST
+def patient_risk_score(request):
+    """
+    POST /api/patients/risk-score/
+    Body: JSON with patient_id. Returns risk score payload.
+    """
+    try:
+        body = json.loads(request.body) if request.body else {}
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON."}, status=400)
+
+    patient_id = (body.get("patient_id") or body.get("patientId") or "").strip()
+    if not patient_id:
+        return JsonResponse({"detail": "patient_id is required."}, status=400)
+
+    try:
+        patient = Patient.objects.get(pk=patient_id)
+    except Patient.DoesNotExist:
+        return JsonResponse({"detail": f"Patient '{patient_id}' not found."}, status=404)
+
+    prediction = RISK_SERVICE.predict(patient)
+    return JsonResponse(
+        {
+            "riskProbability": prediction.risk_probability,
+            "riskBand": prediction.risk_band,
+            "modelVersion": prediction.model_version,
+            "topFactors": prediction.top_factors,
+            "scoringMode": prediction.scoring_mode,
+        }
+    )
+
+
+@csrf_exempt
+@require_POST
+def patient_outcome_create(request):
+    """
+    POST /api/patients/outcomes/
+    Body: { patient_id, event_type, event_time?, source?, note? }
+    """
+    try:
+        body = json.loads(request.body) if request.body else {}
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON."}, status=400)
+
+    patient_id = (body.get("patient_id") or body.get("patientId") or "").strip()
+    event_type = (body.get("event_type") or body.get("eventType") or "").strip()
+    event_time_raw = (body.get("event_time") or body.get("eventTime") or "").strip()
+    source = (body.get("source") or "manual").strip()[:64]
+    note = (body.get("note") or "").strip()
+
+    if not patient_id:
+        return JsonResponse({"detail": "patient_id is required."}, status=400)
+    if event_type not in {
+        PatientOutcomeEvent.EventType.CRITICAL_DETERIORATION,
+        PatientOutcomeEvent.EventType.DEATH,
+    }:
+        return JsonResponse(
+            {"detail": "event_type must be one of: critical_deterioration, death."},
+            status=400,
+        )
+
+    try:
+        patient = Patient.objects.get(pk=patient_id)
+    except Patient.DoesNotExist:
+        return JsonResponse({"detail": f"Patient '{patient_id}' not found."}, status=404)
+
+    event_time = parse_datetime(event_time_raw) if event_time_raw else timezone.now()
+    if event_time is None:
+        return JsonResponse({"detail": "event_time must be an ISO datetime string."}, status=400)
+    if timezone.is_naive(event_time):
+        event_time = timezone.make_aware(event_time, timezone.get_current_timezone())
+
+    event = PatientOutcomeEvent.objects.create(
+        patient=patient,
+        event_type=event_type,
+        event_time=event_time,
+        source=source or "manual",
+        note=note,
+    )
+    return JsonResponse(event.to_api_dict(), status=201)
+
+
+@require_GET
+def patient_outcome_list(request, patient_id: str):
+    """
+    GET /api/patients/<id>/outcomes/
+    """
+    try:
+        patient = Patient.objects.get(pk=patient_id.strip())
+    except Patient.DoesNotExist:
+        return JsonResponse({"detail": f"Patient '{patient_id}' not found."}, status=404)
+
+    events = PatientOutcomeEvent.objects.filter(patient=patient).order_by("-event_time", "-created_at")
+    return JsonResponse({"events": [e.to_api_dict() for e in events]})

@@ -20,15 +20,32 @@ export interface Patient {
     relationship: string
     phone: string
   }
-  medications: {
-    name: string
-    dosage: string
-    frequency: string
-  }[]
+  medications: Array<
+    | string
+    | {
+      name: string
+      dosage: string
+      frequency: string
+    }
+  >
   currentPrescriptions?: string[]
   medicalHistory: string[]
   pastMedicalHistory?: string[]
   notes: string[]
+}
+
+export interface PatientRiskFactor {
+  feature: string
+  direction: "up" | "down"
+  contribution: number
+}
+
+export interface PatientRiskScore {
+  riskProbability: number
+  riskBand: "low" | "medium" | "high"
+  modelVersion: string
+  topFactors: PatientRiskFactor[]
+  scoringMode: "heuristic" | "supervised"
 }
 
 import { getAccessToken } from "./auth"
@@ -104,6 +121,13 @@ export async function getPatientAiOverview(patientId: string): Promise<string> {
     throw new Error(message)
   }
   return typeof body.overview === "string" ? body.overview : ""
+}
+
+export async function getPatientRiskScore(patientId: string): Promise<PatientRiskScore> {
+  return fetchJson<PatientRiskScore>("/api/patients/risk-score/", {
+    method: "POST",
+    body: JSON.stringify({ patient_id: patientId }),
+  })
 }
 
 /** Look up patient by NFC tag id read from Arduino. tagId must come from the reader; backend only returns patients that exist for that nfc_id. */
