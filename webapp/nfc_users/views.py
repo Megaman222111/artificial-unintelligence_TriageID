@@ -10,6 +10,7 @@ from django.utils.dateparse import parse_datetime
 
 from risk_scoring.service import RiskScoringService
 
+from .ai_overview import AiOverviewError, generate_ai_overview
 from .models import UserProfile, Patient, PatientOutcomeEvent
 
 RISK_SERVICE = RiskScoringService()
@@ -258,7 +259,7 @@ def nfc_scan(request):
 def patient_ai_overview(request):
     """
     POST /api/patients/ai-overview/
-    Body: JSON with patient_id. Returns blank overview.
+    Body: JSON with patient_id. Returns generated patient overview text.
     """
     try:
         body = json.loads(request.body) if request.body else {}
@@ -270,11 +271,21 @@ def patient_ai_overview(request):
         return JsonResponse({"detail": "patient_id is required."}, status=400)
 
     try:
-        Patient.objects.get(pk=patient_id)
+        patient = Patient.objects.get(pk=patient_id)
     except Patient.DoesNotExist:
         return JsonResponse({"detail": f"Patient '{patient_id}' not found."}, status=404)
 
-    return JsonResponse({"overview": "Yet to be added."})
+    prediction = None
+    try:
+        prediction = RISK_SERVICE.predict(patient)
+    except Exception:
+        prediction = None
+
+    try:
+        overview = generate_ai_overview(patient, prediction)
+    except AiOverviewError as exc:
+        return JsonResponse({"detail": str(exc)}, status=502)
+    return JsonResponse({"overview": overview})
 
 
 @csrf_exempt
