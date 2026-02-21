@@ -81,31 +81,17 @@ def uci_to_feature_rows(df: pd.DataFrame) -> tuple[list[dict], list[int]]:
         number_inpatient = int(r.get("number_inpatient", 0)) if pd.notna(r.get("number_inpatient")) else 0
         number_outpatient = int(r.get("number_outpatient", 0)) if pd.notna(r.get("number_outpatient")) else 0
         number_emergency = int(r.get("number_emergency", 0)) if pd.notna(r.get("number_emergency")) else 0
-        diag_1 = str(r.get("diag_1", "")).strip() if pd.notna(r.get("diag_1")) else ""
-        diag_2 = str(r.get("diag_2", "")).strip() if pd.notna(r.get("diag_2")) else ""
-        diag_3 = str(r.get("diag_3", "")).strip() if pd.notna(r.get("diag_3")) else ""
-        diabetes_med = str(r.get("diabetesMed", "")).strip() if pd.notna(r.get("diabetesMed")) else ""
-        change = str(r.get("change", "")).strip() if pd.notna(r.get("change")) else ""
         gender = (str(r.get("gender", "Unknown")).strip().lower() or "unknown")[:20]
         if gender not in ("male", "female", "unknown"):
             gender = "unknown"
-        # discharge_disposition_id 11 = Expired; we use "active" for all to avoid label leakage
-        status = "active"
-        text = " ".join(filter(None, [diag_1, diag_2, diag_3, diabetes_med, change]))
 
         rows.append({
             "age_years": float(age_years),
             "days_since_admission": float(time_in_hospital),
-            "allergy_count": 0.0,  # not in UCI
             "medication_count": float(num_medications),
-            "prescription_count": 0.0,  # use medication count only
             "history_count": float(number_diagnoses),
             "past_history_count": float(number_inpatient + number_outpatient + number_emergency),
             "gender": gender,
-            "blood_type": "unknown",  # not in UCI
-            "status": status,
-            "insurance_mode": "insurance",
-            "text": text or " ",
         })
         # Label: 1 if readmitted within 30 days
         readmitted = str(r.get("readmitted", "NO")).strip()
@@ -137,7 +123,7 @@ def main():
     X = feature_dicts_to_dataframe(rows)
     if not all(c in X.columns for c in FEATURE_COLUMN_ORDER):
         raise ValueError("Feature columns mismatch")
-    model_version = f"uci-{len(X)}rows-{positives}pos"
+    model_version = f"uci-simple-{len(X)}rows-{positives}pos"
     result = fit_and_save_pipeline(X, labels, model_dir, model_version=model_version)
     print(f"Saved model: {model_dir / ('risk_model_' + result.model_version + '.joblib')}")
     print(f"  rows={result.rows} positives={result.positives} calibrator={result.calibrator}")

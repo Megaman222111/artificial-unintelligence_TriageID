@@ -6,12 +6,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 from .features import (
     FEATURE_CATEGORICAL_COLUMNS,
     FEATURE_NUMERIC_COLUMNS,
-    FEATURE_TEXT_COLUMN,
+    FEATURE_COLUMN_ORDER,
 )
 
 
@@ -21,6 +21,7 @@ class TrainingResult:
     rows: int
     positives: int
     calibrator: str
+    metrics: Dict[str, float]
 
 
 def fit_and_save_pipeline(
@@ -39,10 +40,11 @@ def fit_and_save_pipeline(
         import joblib
         import numpy as np
         import pandas as pd
-        from sklearn.calibration import CalibratedClassifierCV
+        import sklearn
         from sklearn.compose import ColumnTransformer
-        from sklearn.feature_extraction.text import TfidfVectorizer
         from sklearn.linear_model import LogisticRegression
+        from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
+        from sklearn.model_selection import train_test_split
         from sklearn.pipeline import Pipeline
         from sklearn.preprocessing import OneHotEncoder, StandardScaler
     except ImportError as exc:
@@ -57,36 +59,50 @@ def fit_and_save_pipeline(
     if positives < 1:
         raise ValueError("Need at least one positive label")
 
-    preprocess = ColumnTransformer(
-        transformers=[
-            ("num", StandardScaler(with_mean=False), FEATURE_NUMERIC_COLUMNS),
-            ("cat", OneHotEncoder(handle_unknown="ignore"), FEATURE_CATEGORICAL_COLUMNS),
-            (
-                "txt",
-                TfidfVectorizer(max_features=300, ngram_range=(1, 2)),
-                FEATURE_TEXT_COLUMN,
-            ),
-        ]
-    )
-    base_model = LogisticRegression(class_weight="balanced", penalty="l2", max_iter=1000)
-    pipeline = Pipeline(
-        steps=[
-            ("preprocess", preprocess),
-            ("model", base_model),
-        ]
-    )
+    if not all(col in X.columns for col in FEATURE_COLUMN_ORDER):
+        missing = [col for col in FEATURE_COLUMN_ORDER if col not in X.columns]
+        raise ValueError(f"Missing required feature columns: {missing}")
+
+    def _build_pipeline():
+        preprocess = ColumnTransformer(
+            transformers=[
+                ("num", StandardScaler(), FEATURE_NUMERIC_COLUMNS),
+                ("cat", OneHotEncoder(handle_unknown="ignore"), FEATURE_CATEGORICAL_COLUMNS),
+            ],
+            remainder="drop",
+        )
+        return Pipeline(
+            steps=[
+                ("preprocess", preprocess),
+                ("model", LogisticRegression(max_iter=1000)),
+            ]
+        )
+
+    pipeline = _build_pipeline()
     pipeline.fit(X, labels)
 
     calibrated = None
     calibrator_method = "none"
-    if positives >= 3:
-        calibrator_method = "sigmoid" if positives < 30 else "isotonic"
-        cv = min(3, positives)
-        if cv >= 2:
-            calibrated = CalibratedClassifierCV(
-                estimator=pipeline, method=calibrator_method, cv=cv
-            )
-            calibrated.fit(X, labels)
+
+    metrics: Dict[str, float] = {}
+    if positives >= 10 and (n - positives) >= 10 and n >= 200:
+        X_train, X_valid, y_train, y_valid = train_test_split(
+            X,
+            labels,
+            test_size=0.2,
+            random_state=42,
+            stratify=labels,
+        )
+        eval_pipeline = _build_pipeline()
+        eval_pipeline.fit(X_train, y_train)
+        valid_prob = eval_pipeline.predict_proba(X_valid)[:, 1]
+        metrics["roc_auc"] = float(roc_auc_score(y_valid, valid_prob))
+        metrics["avg_precision"] = float(average_precision_score(y_valid, valid_prob))
+        metrics["brier"] = float(brier_score_loss(y_valid, valid_prob))
+
+    base_rate = float(positives / n)
+    medium_threshold = max(0.08, min(0.20, base_rate))
+    high_threshold = max(medium_threshold + 0.05, min(0.35, base_rate * 2.0))
 
     if not model_version:
         model_version = f"risk-v1-{int(time.time())}"
@@ -112,6 +128,14 @@ def fit_and_save_pipeline(
         "calibrator": calibrated,
         "top_feature_names": top_feature_names,
         "top_feature_weights": top_feature_weights,
+        "feature_columns": FEATURE_COLUMN_ORDER,
+        "band_thresholds": {
+            "medium": round(float(medium_threshold), 4),
+            "high": round(float(high_threshold), 4),
+        },
+        "training_metrics": metrics,
+        "base_rate": round(base_rate, 4),
+        "sklearn_version": sklearn.__version__,
     }
     joblib.dump(payload, path)
     return TrainingResult(
@@ -119,4 +143,5 @@ def fit_and_save_pipeline(
         rows=n,
         positives=positives,
         calibrator=calibrator_method,
+        metrics=metrics,
     )

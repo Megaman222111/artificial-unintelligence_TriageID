@@ -20,11 +20,7 @@ The risk model can be trained on an external dataset that matches our feature sc
   - `history_count` ← `number_diagnoses`
   - `past_history_count` ← `number_inpatient + number_outpatient + number_emergency`
   - `gender` ← `gender`
-  - `blood_type` ← `"unknown"` (not in dataset)
-  - `status` ← `"active"`
-  - `insurance_mode` ← `"insurance"`
-  - `text` ← `diag_1`, `diag_2`, `diag_3`, `diabetesMed`, `change` concatenated
-  - `allergy_count`, `prescription_count` ← 0 (not in dataset)
+  - (No text features and no dataset-missing placeholders; schema is intentionally minimal)
 
 ### How to train with this dataset
 

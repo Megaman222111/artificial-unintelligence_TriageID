@@ -34,7 +34,7 @@ You should see something like:
 - `OK – risk scoring works`
 - `risk_band: low` or `medium` or `high`
 - `risk_probability: 0.xxxx`
-- `model_version: uci-50000rows-5587pos`
+- `model_version: uci-simple-50000rows-5587pos`
 - `scoring_mode: supervised`
 
 If you see “No risk_model_*.joblib”, train first (step 4 below).
