@@ -89,6 +89,9 @@ export interface PatientRiskScore {
   modelVersion: string
   topFactors: { feature: string; direction: string; contribution: number }[]
   scoringMode: "heuristic" | "supervised"
+  seriousnessFactor: number
+  seriousnessLevel: "low" | "moderate" | "high" | "critical"
+  assessmentRecommendation: string
 }
 
 /** Get risk score for a patient (trained model or heuristic). */

@@ -22,6 +22,26 @@ Default CSV path:
 
 `webapp/risk_scoring/data/diabetic_data.csv`
 
+Dataset used for supervised training:
+
+- UCI Machine Learning Repository: *Diabetes 130-US hospitals for years 1999-2008*
+- DOI: `10.24432/C5230J`
+- Label: `readmitted == "<30"` (30-day deterioration/readmission proxy)
+
+Model only uses features available in this app:
+
+- `age_years` (from patient DOB)
+- `days_since_admission`
+- `medication_count` (from medications list length)
+- `current_prescription_count`
+- `allergy_count`
+- `high_risk_allergy_count`
+- `history_count` (from medical history list length)
+- `high_risk_history_count`
+- `past_history_count` (from past medical history list length)
+- `high_risk_prescription_count`
+- `gender`
+
 ## 3. Train model from CSV
 
 ```bash
@@ -37,7 +57,7 @@ python manage.py train_risk_model --csv-path /absolute/path/to/diabetic_data.csv
 ```
 
 Output includes model version, row count, positives, and metrics.
-Model artifact is saved in `webapp/risk_scoring/artifacts/risk_model_risk-v1-*.joblib`.
+Model artifact is saved in `webapp/risk_scoring/artifacts/risk_model_risk-v3-*.joblib`.
 
 ## 4. Test API risk scoring
 
@@ -67,7 +87,7 @@ else
 fi
 ```
 
-You should get: `riskBand`, `riskProbability`, `modelVersion`, `topFactors`, `scoringMode`.
+You should get: `riskBand`, `riskProbability`, `modelVersion`, `topFactors`, `scoringMode`, `seriousnessFactor`, `seriousnessLevel`, `assessmentRecommendation`.
 
 ## 5. Full stack check
 

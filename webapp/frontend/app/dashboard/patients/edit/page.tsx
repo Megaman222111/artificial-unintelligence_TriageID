@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { DatePicker } from "@/components/ui/date-picker"
-import { Usb, ArrowLeft, Loader2, Plus, X } from "lucide-react"
+import { Usb, ArrowLeft, Loader2 } from "lucide-react"
 import type { Patient } from "@/lib/api"
 import {
   getPatientByNfcId,
@@ -51,6 +51,66 @@ function patientToForm(p: Patient): Partial<Patient> {
     pastMedicalHistory: p.pastMedicalHistory || [],
     notes: p.notes || [],
   }
+}
+
+const ALLERGY_OPTIONS = [
+  "Penicillin",
+  "Sulfa",
+  "Latex",
+  "Iodine/Contrast",
+  "Peanut",
+  "Shellfish",
+  "Grass",
+  "Dust",
+]
+
+const CURRENT_PRESCRIPTION_OPTIONS = [
+  "Aspirin",
+  "Insulin",
+  "Warfarin",
+  "Heparin",
+  "Metformin",
+  "Prednisone",
+  "Morphine",
+  "Fentanyl",
+  "Antibiotics",
+  "Chemotherapy",
+]
+
+const MEDICAL_HISTORY_OPTIONS = [
+  "Diabetes",
+  "Hypertension",
+  "Coronary artery disease",
+  "Heart failure",
+  "Stroke",
+  "COPD",
+  "Chronic kidney disease",
+  "Cancer",
+  "Sepsis",
+  "Pneumonia",
+]
+
+const PAST_MEDICAL_HISTORY_OPTIONS = [
+  "Past MI",
+  "Past stroke",
+  "Past cancer",
+  "Past surgery",
+  "Chronic liver disease",
+  "Asthma",
+  "Dementia",
+  "Atrial fibrillation",
+  "Peripheral vascular disease",
+  "Renal failure",
+]
+
+function mergeOptions(base: string[], current?: string[]) {
+  return Array.from(new Set([...base, ...((current || []).filter(Boolean))]))
+}
+
+function toggleListValue(current: string[] | undefined, option: string, checked: boolean) {
+  const list = current || []
+  if (checked) return list.includes(option) ? list : [...list, option]
+  return list.filter((x) => x !== option)
 }
 
 export default function PatientEditPage() {
@@ -209,6 +269,16 @@ export default function PatientEditPage() {
   }, [form, loadedPatient, nfcIdInput, generateRandomNfcId])
 
   const ec = form.emergencyContact || { name: "", relationship: "", phone: "" }
+  const allergyOptions = mergeOptions(ALLERGY_OPTIONS, form.allergies)
+  const prescriptionOptions = mergeOptions(
+    CURRENT_PRESCRIPTION_OPTIONS,
+    form.currentPrescriptions
+  )
+  const medicalHistoryOptions = mergeOptions(MEDICAL_HISTORY_OPTIONS, form.medicalHistory)
+  const pastMedicalHistoryOptions = mergeOptions(
+    PAST_MEDICAL_HISTORY_OPTIONS,
+    form.pastMedicalHistory
+  )
 
   return (
     <DashboardShell>
@@ -309,6 +379,9 @@ export default function PatientEditPage() {
                 value={form.dateOfBirth ?? ""}
                 onChange={(v) => updateField("dateOfBirth", v)}
                 placeholder="Pick date of birth"
+                yearPicker
+                fromYear={1900}
+                toYear={new Date().getFullYear()}
               />
             </div>
             <div>
@@ -353,111 +426,107 @@ export default function PatientEditPage() {
             </div>
           </div>
 
-          {/* Allergies (optional) - list with + */}
+          {/* Allergies (optional) */}
           <div>
             <Label className="text-muted-foreground">Allergies (optional)</Label>
-            <div className="mt-1 space-y-2">
-              {(form.allergies ?? []).map((item, i) => (
-                <div key={i} className="flex gap-2">
-                  <Input
-                    value={item}
-                    onChange={(e) => {
-                      const arr = [...(form.allergies ?? [])]
-                      arr[i] = e.target.value
-                      updateField("allergies", arr)
-                    }}
-                    placeholder="Allergy"
-                    className="flex-1"
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {allergyOptions.map((option) => (
+                <label
+                  key={option}
+                  className="flex cursor-pointer items-center gap-2 rounded-md border border-input px-3 py-2"
+                >
+                  <input
+                    type="checkbox"
+                    checked={(form.allergies ?? []).includes(option)}
+                    onChange={(e) =>
+                      updateField(
+                        "allergies",
+                        toggleListValue(form.allergies, option, e.target.checked)
+                      )
+                    }
+                    className="h-4 w-4 rounded border-input"
                   />
-                  <Button type="button" variant="ghost" size="icon" className="shrink-0" onClick={() => updateField("allergies", (form.allergies ?? []).filter((_, j) => j !== i))}>
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
+                  <span className="text-sm">{option}</span>
+                </label>
               ))}
-              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => updateField("allergies", [...(form.allergies ?? []), ""])}>
-                <Plus className="h-3.5 w-3.5" /> Add allergy
-              </Button>
             </div>
           </div>
 
-          {/* Current prescriptions (optional) - list with + */}
+          {/* Current prescriptions (optional) */}
           <div>
             <Label className="text-muted-foreground">Current prescriptions (optional)</Label>
-            <div className="mt-1 space-y-2">
-              {(form.currentPrescriptions ?? []).map((item, i) => (
-                <div key={i} className="flex gap-2">
-                  <Input
-                    value={item}
-                    onChange={(e) => {
-                      const arr = [...(form.currentPrescriptions ?? [])]
-                      arr[i] = e.target.value
-                      updateField("currentPrescriptions", arr)
-                    }}
-                    placeholder="e.g. Aspirin 81mg daily"
-                    className="flex-1"
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {prescriptionOptions.map((option) => (
+                <label
+                  key={option}
+                  className="flex cursor-pointer items-center gap-2 rounded-md border border-input px-3 py-2"
+                >
+                  <input
+                    type="checkbox"
+                    checked={(form.currentPrescriptions ?? []).includes(option)}
+                    onChange={(e) =>
+                      updateField(
+                        "currentPrescriptions",
+                        toggleListValue(form.currentPrescriptions, option, e.target.checked)
+                      )
+                    }
+                    className="h-4 w-4 rounded border-input"
                   />
-                  <Button type="button" variant="ghost" size="icon" className="shrink-0" onClick={() => updateField("currentPrescriptions", (form.currentPrescriptions ?? []).filter((_, j) => j !== i))}>
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
+                  <span className="text-sm">{option}</span>
+                </label>
               ))}
-              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => updateField("currentPrescriptions", [...(form.currentPrescriptions ?? []), ""])}>
-                <Plus className="h-3.5 w-3.5" /> Add prescription
-              </Button>
             </div>
           </div>
 
-          {/* Medical history - list with + */}
+          {/* Medical history */}
           <div>
             <Label>Medical history</Label>
-            <div className="mt-1 space-y-2">
-              {(form.medicalHistory ?? []).map((item, i) => (
-                <div key={i} className="flex gap-2">
-                  <Input
-                    value={item}
-                    onChange={(e) => {
-                      const arr = [...(form.medicalHistory ?? [])]
-                      arr[i] = e.target.value
-                      updateField("medicalHistory", arr)
-                    }}
-                    placeholder="Condition or procedure"
-                    className="flex-1"
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {medicalHistoryOptions.map((option) => (
+                <label
+                  key={option}
+                  className="flex cursor-pointer items-center gap-2 rounded-md border border-input px-3 py-2"
+                >
+                  <input
+                    type="checkbox"
+                    checked={(form.medicalHistory ?? []).includes(option)}
+                    onChange={(e) =>
+                      updateField(
+                        "medicalHistory",
+                        toggleListValue(form.medicalHistory, option, e.target.checked)
+                      )
+                    }
+                    className="h-4 w-4 rounded border-input"
                   />
-                  <Button type="button" variant="ghost" size="icon" className="shrink-0" onClick={() => updateField("medicalHistory", (form.medicalHistory ?? []).filter((_, j) => j !== i))}>
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
+                  <span className="text-sm">{option}</span>
+                </label>
               ))}
-              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => updateField("medicalHistory", [...(form.medicalHistory ?? []), ""])}>
-                <Plus className="h-3.5 w-3.5" /> Add
-              </Button>
             </div>
           </div>
 
-          {/* Past medical history - list with + */}
+          {/* Past medical history */}
           <div>
             <Label>Past medical history</Label>
-            <div className="mt-1 space-y-2">
-              {(form.pastMedicalHistory ?? []).map((item, i) => (
-                <div key={i} className="flex gap-2">
-                  <Input
-                    value={item}
-                    onChange={(e) => {
-                      const arr = [...(form.pastMedicalHistory ?? [])]
-                      arr[i] = e.target.value
-                      updateField("pastMedicalHistory", arr)
-                    }}
-                    placeholder="Past condition or procedure"
-                    className="flex-1"
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {pastMedicalHistoryOptions.map((option) => (
+                <label
+                  key={option}
+                  className="flex cursor-pointer items-center gap-2 rounded-md border border-input px-3 py-2"
+                >
+                  <input
+                    type="checkbox"
+                    checked={(form.pastMedicalHistory ?? []).includes(option)}
+                    onChange={(e) =>
+                      updateField(
+                        "pastMedicalHistory",
+                        toggleListValue(form.pastMedicalHistory, option, e.target.checked)
+                      )
+                    }
+                    className="h-4 w-4 rounded border-input"
                   />
-                  <Button type="button" variant="ghost" size="icon" className="shrink-0" onClick={() => updateField("pastMedicalHistory", (form.pastMedicalHistory ?? []).filter((_, j) => j !== i))}>
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
+                  <span className="text-sm">{option}</span>
+                </label>
               ))}
-              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => updateField("pastMedicalHistory", [...(form.pastMedicalHistory ?? []), ""])}>
-                <Plus className="h-3.5 w-3.5" /> Add
-              </Button>
             </div>
           </div>
 

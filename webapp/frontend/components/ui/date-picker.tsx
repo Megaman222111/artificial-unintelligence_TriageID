@@ -20,6 +20,9 @@ export interface DatePickerProps {
   id?: string
   className?: string
   disabled?: boolean
+  yearPicker?: boolean
+  fromYear?: number
+  toYear?: number
 }
 
 /** Format for API: YYYY-MM-DD */
@@ -43,9 +46,13 @@ export function DatePicker({
   id,
   className,
   disabled,
+  yearPicker = false,
+  fromYear,
+  toYear,
 }: DatePickerProps) {
   const [open, setOpen] = React.useState(false)
   const date = parseValue(value)
+  const currentYear = new Date().getFullYear()
 
   const handleSelect = (d: Date | undefined) => {
     if (!d) return
@@ -76,6 +83,9 @@ export function DatePicker({
           selected={date}
           onSelect={handleSelect}
           defaultMonth={date}
+          captionLayout={yearPicker ? "dropdown" : "label"}
+          fromYear={yearPicker ? (fromYear ?? 1900) : undefined}
+          toYear={yearPicker ? (toYear ?? currentYear) : undefined}
           initialFocus
         />
       </PopoverContent>

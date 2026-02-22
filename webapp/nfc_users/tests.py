@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from django.test import Client, TestCase
 
+from nfc_users.ai_overview import AiOverviewError
 from nfc_users.models import Patient
 
 
@@ -69,6 +70,12 @@ class RiskApiFlowTests(TestCase):
         self.assertIn(risk_body.get("riskBand"), {"low", "medium", "high"})
         self.assertTrue(0 <= float(risk_body.get("riskProbability", -1)) <= 1)
         self.assertIn(risk_body.get("scoringMode"), {"heuristic", "supervised"})
+        self.assertTrue(0 <= float(risk_body.get("seriousnessFactor", -1)) <= 100)
+        self.assertIn(
+            risk_body.get("seriousnessLevel"),
+            {"low", "moderate", "high", "critical"},
+        )
+        self.assertTrue(isinstance(risk_body.get("assessmentRecommendation"), str))
 
     def test_ai_overview_returns_generated_text(self):
         patient = _create_patient(
@@ -92,3 +99,27 @@ class RiskApiFlowTests(TestCase):
         overview = body.get("overview")
         self.assertIsInstance(overview, str)
         self.assertEqual(overview, "LLM summary text.")
+
+    def test_ai_overview_falls_back_when_provider_fails(self):
+        patient = _create_patient(
+            patient_id="FLOW-003",
+            nfc_id="FLOW-003",
+            admission_date="2026-02-10",
+            status="active",
+        )
+        client = Client()
+
+        with patch(
+            "nfc_users.views.generate_ai_overview",
+            side_effect=AiOverviewError("provider error"),
+        ):
+            overview_resp = client.post(
+                "/api/patients/ai-overview/",
+                data=json.dumps({"patient_id": patient.id}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(overview_resp.status_code, 200)
+        body = overview_resp.json()
+        self.assertEqual(body.get("source"), "fallback")
+        self.assertTrue(isinstance(body.get("overview"), str) and body.get("overview", "").strip())

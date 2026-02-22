@@ -40,8 +40,32 @@ function getInitials(first: string, last: string) {
   return `${first[0]}${last[0]}`
 }
 
+function parseLocalDate(dateStr: string) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr)
+  if (m) {
+    const year = Number(m[1])
+    const month = Number(m[2]) - 1
+    const day = Number(m[3])
+    return new Date(year, month, day)
+  }
+  return new Date(dateStr)
+}
+
+function getSeriousnessColor(level: string) {
+  switch (level) {
+    case "critical":
+      return "border-destructive/40 bg-destructive/10 text-destructive"
+    case "high":
+      return "border-rose-500/40 bg-rose-500/10 text-rose-600"
+    case "moderate":
+      return "border-amber-500/40 bg-amber-500/10 text-amber-600"
+    default:
+      return "border-primary/40 bg-primary/10 text-primary"
+  }
+}
+
 function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString("en-US", {
+  return parseLocalDate(dateStr).toLocaleDateString("en-US", {
     year: "numeric",
     month: "long",
     day: "numeric",
@@ -50,7 +74,7 @@ function formatDate(dateStr: string) {
 
 function getAge(dob: string) {
   const today = new Date()
-  const birth = new Date(dob)
+  const birth = parseLocalDate(dob)
   let age = today.getFullYear() - birth.getFullYear()
   const m = today.getMonth() - birth.getMonth()
   if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
@@ -143,7 +167,7 @@ export function PatientDetail({ patient }: { patient: Patient }) {
           <div className="rounded-xl border border-border bg-card p-6">
             <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold font-[family-name:var(--font-heading)] text-foreground">
               <Activity className="h-5 w-5 text-primary" />
-              Risk
+              Seriousness
             </h2>
             {riskScoreLoading && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -156,29 +180,29 @@ export function PatientDetail({ patient }: { patient: Patient }) {
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge
                     variant="outline"
-                    className={
-                      riskScore.riskBand === "high"
-                        ? "border-destructive/40 bg-destructive/10 text-destructive"
-                        : riskScore.riskBand === "medium"
-                          ? "border-amber-500/40 bg-amber-500/10 text-amber-600"
-                          : "border-primary/40 bg-primary/10 text-primary"
-                    }
+                    className={`capitalize ${getSeriousnessColor(riskScore.seriousnessLevel)}`}
                   >
-                    {riskScore.riskBand}
+                    {riskScore.seriousnessLevel}
                   </Badge>
                   <span className="text-sm text-muted-foreground">
-                    {(riskScore.riskProbability * 100).toFixed(1)}% probability
+                    {riskScore.seriousnessFactor.toFixed(1)}/100 seriousness
                   </span>
                   <span className="text-xs text-muted-foreground">
                     ({riskScore.scoringMode})
                   </span>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  {riskScore.assessmentRecommendation}
+                </p>
                 {riskScore.topFactors.length > 0 && (
                   <p className="text-xs text-muted-foreground">
                     Top factors:{" "}
                     {riskScore.topFactors
                       .slice(0, 5)
-                      .map((f) => f.feature)
+                      .map(
+                        (f) =>
+                          `${f.feature} (${f.contribution >= 0 ? "+" : ""}${f.contribution.toFixed(3)})`
+                      )
                       .join(", ")}
                   </p>
                 )}

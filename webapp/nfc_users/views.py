@@ -6,12 +6,26 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST, require_http_methods
 
-from .ai_overview import AiOverviewError, generate_ai_overview
+from .ai_overview import AiOverviewError, build_fallback_overview, generate_ai_overview
 from .models import UserProfile, Patient
 
 
 def _get_user_json(profile):
     return profile.to_api_dict()
+
+
+def _as_string_list(value):
+    if value is None:
+        return []
+    if isinstance(value, list):
+        out = []
+        for item in value:
+            s = str(item).strip()
+            if s and s not in out:
+                out.append(s)
+        return out
+    s = str(value).strip()
+    return [s] if s else []
 
 
 @require_GET
@@ -98,12 +112,12 @@ def _patient_api_dict_from_body(body):
         "insurance_id": get("insuranceId", "insurance_id") or "",
         "use_alberta_health_card": get("useAlbertaHealthCard", "use_alberta_health_card") if get("useAlbertaHealthCard", "use_alberta_health_card") is not None else None,
         "alberta_health_card_number": get("albertaHealthCardNumber", "alberta_health_card_number") or "",
-        "allergies": get("allergies") if get("allergies") is not None else [],
+        "allergies": _as_string_list(get("allergies")),
         "emergency_contact": get("emergencyContact", "emergency_contact") if get("emergencyContact", "emergency_contact") is not None else {},
         "medications": get("medications") if get("medications") is not None else [],
-        "current_prescriptions": get("currentPrescriptions", "current_prescriptions") if get("currentPrescriptions", "current_prescriptions") is not None else [],
-        "medical_history": get("medicalHistory", "medical_history") if get("medicalHistory", "medical_history") is not None else [],
-        "past_medical_history": get("pastMedicalHistory", "past_medical_history") if get("pastMedicalHistory", "past_medical_history") is not None else [],
+        "current_prescriptions": _as_string_list(get("currentPrescriptions", "current_prescriptions")),
+        "medical_history": _as_string_list(get("medicalHistory", "medical_history")),
+        "past_medical_history": _as_string_list(get("pastMedicalHistory", "past_medical_history")),
         "notes": get("notes") if get("notes") is not None else [],
     }
 
@@ -206,12 +220,18 @@ def patient_create(request):
         insurance_id=body.get("insuranceId") or body.get("insurance_id") or "",
         use_alberta_health_card=body.get("useAlbertaHealthCard") or body.get("use_alberta_health_card") or False,
         alberta_health_card_number=(body.get("albertaHealthCardNumber") or body.get("alberta_health_card_number") or "").strip()[:32],
-        allergies=body.get("allergies") or [],
+        allergies=_as_string_list(body.get("allergies")),
         emergency_contact=body.get("emergencyContact") or body.get("emergency_contact") or {},
         medications=body.get("medications") or [],
-        current_prescriptions=body.get("currentPrescriptions") or [],
-        medical_history=body.get("medicalHistory") or body.get("medical_history") or [],
-        past_medical_history=body.get("pastMedicalHistory") or body.get("past_medical_history") or [],
+        current_prescriptions=_as_string_list(
+            body.get("currentPrescriptions") if body.get("currentPrescriptions") is not None else body.get("current_prescriptions")
+        ),
+        medical_history=_as_string_list(
+            body.get("medicalHistory") if body.get("medicalHistory") is not None else body.get("medical_history")
+        ),
+        past_medical_history=_as_string_list(
+            body.get("pastMedicalHistory") if body.get("pastMedicalHistory") is not None else body.get("past_medical_history")
+        ),
         notes=body.get("notes") or [],
     )
     p.save()
@@ -280,7 +300,14 @@ def patient_ai_overview(request):
         overview = generate_ai_overview(patient, prediction)
         return JsonResponse({"overview": overview or ""})
     except AiOverviewError as e:
-        return JsonResponse({"overview": "", "error": str(e)}, status=503)
+        overview = build_fallback_overview(patient, prediction)
+        return JsonResponse(
+            {
+                "overview": overview,
+                "source": "fallback",
+                "warning": str(e),
+            }
+        )
 
 
 @csrf_exempt
@@ -319,4 +346,7 @@ def patient_risk_score(request):
         "modelVersion": prediction.model_version,
         "topFactors": prediction.top_factors or [],
         "scoringMode": prediction.scoring_mode,
+        "seriousnessFactor": prediction.seriousness_factor,
+        "seriousnessLevel": prediction.seriousness_level,
+        "assessmentRecommendation": prediction.assessment_recommendation,
     })

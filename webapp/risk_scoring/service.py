@@ -24,6 +24,9 @@ class RiskPrediction:
     model_version: str
     top_factors: List[Dict[str, Any]]
     scoring_mode: str
+    seriousness_factor: float
+    seriousness_level: str
+    assessment_recommendation: str
 
 
 class RiskScoringService:
@@ -60,6 +63,269 @@ class RiskScoringService:
     def _heuristic_score(self, feature_row: Dict[str, Any]) -> float:
         return heuristic_risk_score(feature_row)
 
+    @staticmethod
+    def _normalized_band_thresholds(
+        thresholds: Dict[str, Any] | None = None,
+    ) -> tuple[float, float]:
+        medium = 0.15
+        high = 0.35
+        if isinstance(thresholds, dict):
+            try:
+                medium = float(thresholds.get("medium", medium))
+            except (TypeError, ValueError):
+                medium = 0.15
+            try:
+                high = float(thresholds.get("high", high))
+            except (TypeError, ValueError):
+                high = 0.35
+        if high <= medium:
+            high = medium + 0.05
+        return medium, high
+
+    # Apply conservative context adjustments that are not represented in the
+    # supervised training labels (status transitions and severe-condition text).
+    @staticmethod
+    def _context_adjust_probability(
+        probability: float,
+        feature_row: Dict[str, Any],
+        thresholds: Dict[str, Any] | None = None,
+    ) -> tuple[float, List[Dict[str, Any]]]:
+        adjusted = float(max(0.0, min(1.0, probability)))
+        factors: List[Dict[str, Any]] = []
+
+        status = str(feature_row.get("status", "") or "").strip().lower()
+        if status == "critical" and adjusted < 0.45:
+            delta = 0.45 - adjusted
+            adjusted = 0.45
+            factors.append(
+                {
+                    "feature": "status=critical",
+                    "direction": "up",
+                    "contribution": round(delta, 4),
+                }
+            )
+        elif status == "discharged":
+            delta = -min(0.10, adjusted * 0.40)
+            adjusted += delta
+            factors.append(
+                {
+                    "feature": "status=discharged",
+                    "direction": "down",
+                    "contribution": round(delta, 4),
+                }
+            )
+
+        raw_days = float(
+            feature_row.get("days_since_admission_raw")
+            or feature_row.get("days_since_admission")
+            or 0.0
+        )
+        if raw_days >= 60:
+            adjusted += 0.03
+            factors.append(
+                {
+                    "feature": "days_since_admission_raw>=60",
+                    "direction": "up",
+                    "contribution": 0.03,
+                }
+            )
+        if raw_days >= 180:
+            adjusted += 0.05
+            factors.append(
+                {
+                    "feature": "days_since_admission_raw>=180",
+                    "direction": "up",
+                    "contribution": 0.05,
+                }
+            )
+
+        severe_score = float(feature_row.get("serious_condition_score") or 0.0)
+        severe_bonus = min(0.12, severe_score / 300.0)
+        if severe_bonus > 0:
+            adjusted += severe_bonus
+            factors.append(
+                {
+                    "feature": "serious_conditions",
+                    "direction": "up",
+                    "contribution": round(severe_bonus, 4),
+                }
+            )
+
+        if (feature_row.get("high_risk_history_count") or 0) >= 1:
+            adjusted += 0.07
+            factors.append(
+                {
+                    "feature": "high_risk_history_count>=1",
+                    "direction": "up",
+                    "contribution": 0.07,
+                }
+            )
+        if (feature_row.get("high_risk_prescription_count") or 0) >= 1:
+            adjusted += 0.05
+            factors.append(
+                {
+                    "feature": "high_risk_prescription_count>=1",
+                    "direction": "up",
+                    "contribution": 0.05,
+                }
+            )
+        if (feature_row.get("high_risk_allergy_count") or 0) >= 1:
+            adjusted += 0.04
+            factors.append(
+                {
+                    "feature": "high_risk_allergy_count>=1",
+                    "direction": "up",
+                    "contribution": 0.04,
+                }
+            )
+        if (feature_row.get("current_prescription_count") or 0) >= 3:
+            adjusted += 0.03
+            factors.append(
+                {
+                    "feature": "current_prescription_count>=3",
+                    "direction": "up",
+                    "contribution": 0.03,
+                }
+            )
+
+        # Policy override: very advanced age should not remain in low/medium due
+        # solely to model calibration artifacts.
+        age_raw = float(
+            feature_row.get("age_years_raw") or feature_row.get("age_years") or 0.0
+        )
+        _medium, high = RiskScoringService._normalized_band_thresholds(thresholds)
+        if age_raw >= 110:
+            floor = min(0.95, high + 0.02)
+            if adjusted < floor:
+                delta = floor - adjusted
+                adjusted = floor
+                factors.append(
+                    {
+                        "feature": "age_years_raw>=110",
+                        "direction": "up",
+                        "contribution": round(delta, 4),
+                    }
+                )
+        elif age_raw >= 100:
+            floor = high
+            if adjusted < floor:
+                delta = floor - adjusted
+                adjusted = floor
+                factors.append(
+                    {
+                        "feature": "age_years_raw>=100",
+                        "direction": "up",
+                        "contribution": round(delta, 4),
+                    }
+                )
+
+        adjusted = float(max(0.01, min(0.95, adjusted)))
+        return adjusted, factors
+
+    @staticmethod
+    def _merge_top_factors(
+        base_factors: List[Dict[str, Any]],
+        extra_factors: List[Dict[str, Any]],
+        *,
+        limit: int = 5,
+    ) -> List[Dict[str, Any]]:
+        merged = [*extra_factors, *base_factors]
+        merged = [
+            f for f in merged if abs(float(f.get("contribution", 0.0))) >= 1e-9
+        ]
+        merged.sort(key=lambda f: abs(float(f.get("contribution", 0.0))), reverse=True)
+        if merged:
+            return merged[:limit]
+        return (base_factors or extra_factors)[:limit]
+
+    @staticmethod
+    def _risk_from_seriousness(
+        seriousness_factor: float,
+        seriousness_level: str,
+    ) -> tuple[float, str]:
+        probability = max(0.01, min(0.95, float(seriousness_factor) / 100.0))
+        level = (seriousness_level or "").strip().lower()
+        if level in {"high", "critical"}:
+            band = "high"
+        elif level == "moderate":
+            band = "medium"
+        else:
+            band = "low"
+        return round(probability, 4), band
+
+    # Convert probability + core clinical context into a 0-100 seriousness factor.
+    # This is an operational triage aid for assessment urgency, not a diagnosis.
+    @staticmethod
+    def _seriousness_assessment(
+        probability: float,
+        risk_band: str,
+        feature_row: Dict[str, Any],
+    ) -> tuple[float, str, str]:
+        score = float(probability) * 100.0
+
+        status = str(feature_row.get("status", "") or "").strip().lower()
+        if status == "critical":
+            score += 30.0
+        elif status == "discharged":
+            score -= 20.0
+
+        age_for_context = float(
+            feature_row.get("age_years_raw") or feature_row.get("age_years") or 0.0
+        )
+        if age_for_context >= 75:
+            score += 8.0
+        raw_days = float(
+            feature_row.get("days_since_admission_raw")
+            or feature_row.get("days_since_admission")
+            or 0.0
+        )
+        if raw_days >= 14:
+            score += 6.0
+        if raw_days >= 60:
+            score += 8.0
+        if raw_days >= 180:
+            score += 10.0
+        if (feature_row.get("history_count") or 0) >= 4:
+            score += 7.0
+        if (feature_row.get("past_history_count") or 0) >= 2:
+            score += 6.0
+        if (feature_row.get("allergy_count") or 0) >= 2:
+            score += 4.0
+        score += min(8.0, float(feature_row.get("high_risk_allergy_count") or 0.0) * 6.0)
+        if (feature_row.get("current_prescription_count") or 0) >= 3:
+            score += 5.0
+        score += min(
+            10.0, float(feature_row.get("high_risk_prescription_count") or 0.0) * 7.0
+        )
+        if (feature_row.get("high_risk_history_count") or 0) >= 1:
+            score += 12.0
+        if (feature_row.get("medication_count") or 0) == 0:
+            score += 2.0
+        score += min(25.0, float(feature_row.get("serious_condition_score") or 0.0))
+
+        # Keep seriousness aligned with the model risk band floor.
+        if risk_band == "high":
+            score = max(score, 70.0)
+        elif risk_band == "medium":
+            score = max(score, 45.0)
+
+        score = max(0.0, min(100.0, score))
+
+        if score >= 80.0:
+            level = "critical"
+            recommendation = "Immediate bedside assessment (target: within 15 minutes)."
+        elif score >= 60.0:
+            level = "high"
+            recommendation = "Urgent clinician assessment (target: within 30 minutes)."
+        elif score >= 35.0:
+            level = "moderate"
+            recommendation = "Priority reassessment and monitoring (target: within 4 hours)."
+        else:
+            level = "low"
+            recommendation = "Routine monitoring; reassess on any status change."
+
+        return round(score, 1), level, recommendation
+
     # Main runtime entrypoint: build features, run supervised model, fallback if needed.
     # Returns API-ready prediction payload fields via RiskPrediction.
     def predict(self, patient: Any) -> RiskPrediction:
@@ -67,12 +333,31 @@ class RiskScoringService:
         model_payload = self._load_latest_model_payload()
         if not model_payload:
             score = self._heuristic_score(feature_row)
+            score, context_factors = self._context_adjust_probability(
+                score,
+                feature_row,
+                thresholds=None,
+            )
+            pre_band = self._to_band(score)
+            seriousness_factor, seriousness_level, assessment_recommendation = (
+                self._seriousness_assessment(score, pre_band, feature_row)
+            )
+            risk_probability, risk_band = self._risk_from_seriousness(
+                seriousness_factor, seriousness_level
+            )
+            factors = self._merge_top_factors(
+                top_heuristic_factors(feature_row, score),
+                context_factors,
+            )
             return RiskPrediction(
-                risk_probability=round(score, 4),
-                risk_band=self._to_band(score),
+                risk_probability=risk_probability,
+                risk_band=risk_band,
                 model_version="heuristic-v1",
-                top_factors=top_heuristic_factors(feature_row, score),
+                top_factors=factors,
                 scoring_mode="heuristic",
+                seriousness_factor=seriousness_factor,
+                seriousness_level=seriousness_level,
+                assessment_recommendation=assessment_recommendation,
             )
 
         pipeline = model_payload.get("pipeline")
@@ -90,34 +375,83 @@ class RiskScoringService:
         except Exception as exc:
             logger.warning("Risk model prediction failed, using heuristic fallback: %s", exc)
             score = self._heuristic_score(feature_row)
+            score, context_factors = self._context_adjust_probability(
+                score,
+                feature_row,
+                thresholds=None,
+            )
+            pre_band = self._to_band(score)
+            seriousness_factor, seriousness_level, assessment_recommendation = (
+                self._seriousness_assessment(score, pre_band, feature_row)
+            )
+            risk_probability, risk_band = self._risk_from_seriousness(
+                seriousness_factor, seriousness_level
+            )
+            factors = self._merge_top_factors(
+                top_heuristic_factors(feature_row, score),
+                context_factors,
+            )
             return RiskPrediction(
-                risk_probability=round(score, 4),
-                risk_band=self._to_band(score),
+                risk_probability=risk_probability,
+                risk_band=risk_band,
                 model_version="heuristic-v1",
-                top_factors=top_heuristic_factors(feature_row, score),
+                top_factors=factors,
                 scoring_mode="heuristic",
+                seriousness_factor=seriousness_factor,
+                seriousness_level=seriousness_level,
+                assessment_recommendation=assessment_recommendation,
             )
 
+        prob, context_factors = self._context_adjust_probability(
+            prob,
+            feature_row,
+            thresholds=thresholds,
+        )
+        factors = self._merge_top_factors(factors, context_factors)
+        pre_band = self._to_band(prob, thresholds)
+        seriousness_factor, seriousness_level, assessment_recommendation = (
+            self._seriousness_assessment(prob, pre_band, feature_row)
+        )
+        risk_probability, risk_band = self._risk_from_seriousness(
+            seriousness_factor, seriousness_level
+        )
+
         return RiskPrediction(
-            risk_probability=round(prob, 4),
-            risk_band=self._to_band(prob, thresholds),
+            risk_probability=risk_probability,
+            risk_band=risk_band,
             model_version=model_payload.get("model_version", "model-unknown"),
             top_factors=factors,
             scoring_mode="supervised",
+            seriousness_factor=seriousness_factor,
+            seriousness_level=seriousness_level,
+            assessment_recommendation=assessment_recommendation,
         )
 
     # Convert transformed feature names (e.g. num__/cat__) to human-friendly labels.
     @staticmethod
     def _humanize_feature_name(name: str) -> str:
+        aliases = {
+            "age_years": "age_years",
+            "days_since_admission": "days_since_admission",
+            "medication_count": "medications_count",
+            "current_prescription_count": "current_prescription_count",
+            "allergy_count": "allergy_count",
+            "high_risk_allergy_count": "high_risk_allergy_count",
+            "history_count": "medical_history_count",
+            "high_risk_history_count": "high_risk_history_count",
+            "past_history_count": "past_medical_history_count",
+            "high_risk_prescription_count": "high_risk_prescription_count",
+        }
         if name.startswith("num__"):
-            return name.replace("num__", "", 1)
+            raw = name.replace("num__", "", 1)
+            return aliases.get(raw, raw)
         if name.startswith("cat__"):
             raw = name.replace("cat__", "", 1)
             if "_" in raw:
                 field, value = raw.split("_", 1)
-                return f"{field}={value}"
-            return raw
-        return name
+                return f"{aliases.get(field, field)}={value}"
+            return aliases.get(raw, raw)
+        return aliases.get(name, name)
 
     # Compute per-patient top contributions as transformed_value * coefficient.
     # Falls back to stored top weights for older artifact formats.
