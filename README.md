@@ -2,8 +2,8 @@
 
 *Medical emergency information at a tap.*
 
-![20260222_011007 (1)](https://github.com/user-attachments/assets/c0adf993-ace6-4d22-befd-f64f42e1f5a4)
-![20260222_011347 (1)](https://github.com/user-attachments/assets/67468a77-4536-4743-9188-55ee12cf9a83)
+![20260222_011214 (1)](https://github.com/user-attachments/assets/4cffee80-0b79-4c1d-8c47-6fb63f5d76e9)
+![20260222_011007 (1)](https://github.com/user-attachments/assets/83ec22a7-c06e-4dbc-b5a3-87264853c931)
 
 ## What it does
 
