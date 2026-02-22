@@ -118,6 +118,7 @@ def _patient_api_dict_from_body(body):
         "current_prescriptions": _as_string_list(get("currentPrescriptions", "current_prescriptions")),
         "medical_history": _as_string_list(get("medicalHistory", "medical_history")),
         "past_medical_history": _as_string_list(get("pastMedicalHistory", "past_medical_history")),
+        "important_test_results": (get("importantTestResults", "important_test_results") or "").strip(),
         "notes": get("notes") if get("notes") is not None else [],
     }
 
@@ -232,6 +233,11 @@ def patient_create(request):
         past_medical_history=_as_string_list(
             body.get("pastMedicalHistory") if body.get("pastMedicalHistory") is not None else body.get("past_medical_history")
         ),
+        important_test_results=(
+            body.get("importantTestResults")
+            if body.get("importantTestResults") is not None
+            else body.get("important_test_results")
+        ) or "",
         notes=body.get("notes") or [],
     )
     p.save()

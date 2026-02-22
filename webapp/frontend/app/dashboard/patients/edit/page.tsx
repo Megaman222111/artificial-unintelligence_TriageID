@@ -27,6 +27,7 @@ const emptyForm = (nfcId: string): Partial<Patient> => ({
   bloodType: "",
   status: "active",
   admissionDate: "",
+  primaryDiagnosis: "",
   allergies: [],
   insuranceProvider: "",
   insuranceId: "",
@@ -37,6 +38,7 @@ const emptyForm = (nfcId: string): Partial<Patient> => ({
   currentPrescriptions: [],
   medicalHistory: [],
   pastMedicalHistory: [],
+  importantTestResults: "",
   notes: [],
 })
 
@@ -49,6 +51,8 @@ function patientToForm(p: Patient): Partial<Patient> {
     currentPrescriptions: p.currentPrescriptions || [],
     medicalHistory: p.medicalHistory || [],
     pastMedicalHistory: p.pastMedicalHistory || [],
+    primaryDiagnosis: p.primaryDiagnosis || "",
+    importantTestResults: p.importantTestResults || "",
     notes: p.notes || [],
   }
 }
@@ -113,6 +117,13 @@ function toggleListValue(current: string[] | undefined, option: string, checked:
   return list.filter((x) => x !== option)
 }
 
+function addListValue(current: string[] | undefined, rawValue: string) {
+  const value = rawValue.trim()
+  if (!value) return current || []
+  const list = current || []
+  return list.includes(value) ? list : [...list, value]
+}
+
 export default function PatientEditPage() {
   const searchParams = useSearchParams()
   const [nfcIdInput, setNfcIdInput] = useState("")
@@ -123,6 +134,10 @@ export default function PatientEditPage() {
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [pendingWriteNfcId, setPendingWriteNfcId] = useState<string | null>(null)
   const [writeToTagDone, setWriteToTagDone] = useState(false)
+  const [customAllergy, setCustomAllergy] = useState("")
+  const [customPrescription, setCustomPrescription] = useState("")
+  const [customMedicalHistory, setCustomMedicalHistory] = useState("")
+  const [customPastMedicalHistory, setCustomPastMedicalHistory] = useState("")
   const pendingWriteNfcIdRef = useRef<string | null>(null)
   const serialSendRef = useRef<(text: string) => Promise<void>>(async () => {})
 
@@ -222,6 +237,7 @@ export default function PatientEditPage() {
           bloodType: form.bloodType ?? "",
           status: (form.status as Patient["status"]) ?? "active",
           admissionDate: form.admissionDate ?? "",
+          primaryDiagnosis: form.primaryDiagnosis ?? "",
           allergies: form.allergies ?? [],
           insuranceProvider: form.insuranceProvider ?? "",
           insuranceId: form.insuranceId ?? "",
@@ -232,6 +248,7 @@ export default function PatientEditPage() {
           currentPrescriptions: form.currentPrescriptions ?? [],
           medicalHistory: form.medicalHistory ?? [],
           pastMedicalHistory: form.pastMedicalHistory ?? [],
+          importantTestResults: form.importantTestResults ?? "",
           notes: form.notes ?? [],
         })
       } else {
@@ -244,6 +261,7 @@ export default function PatientEditPage() {
           bloodType: form.bloodType || undefined,
           status: (form.status as Patient["status"]) || "active",
           admissionDate: form.admissionDate || undefined,
+          primaryDiagnosis: form.primaryDiagnosis || undefined,
           allergies: form.allergies?.length ? form.allergies : undefined,
           insuranceProvider: form.insuranceProvider || undefined,
           insuranceId: form.insuranceId || undefined,
@@ -254,6 +272,7 @@ export default function PatientEditPage() {
           currentPrescriptions: form.currentPrescriptions?.length ? form.currentPrescriptions : undefined,
           medicalHistory: form.medicalHistory?.length ? form.medicalHistory : undefined,
           pastMedicalHistory: form.pastMedicalHistory?.length ? form.pastMedicalHistory : undefined,
+          importantTestResults: form.importantTestResults?.trim() || undefined,
           notes: form.notes?.length ? form.notes : undefined,
         })
         setPendingWriteNfcId(created.nfcId)
@@ -424,6 +443,15 @@ export default function PatientEditPage() {
                 placeholder="Pick admission date"
               />
             </div>
+            <div className="sm:col-span-2">
+              <Label htmlFor="primary-diagnosis">Primary diagnosis</Label>
+              <Input
+                id="primary-diagnosis"
+                value={form.primaryDiagnosis ?? ""}
+                onChange={(e) => updateField("primaryDiagnosis", e.target.value)}
+                placeholder="e.g. Sepsis, CHF exacerbation, trauma"
+              />
+            </div>
           </div>
 
           {/* Allergies (optional) */}
@@ -449,6 +477,23 @@ export default function PatientEditPage() {
                   <span className="text-sm">{option}</span>
                 </label>
               ))}
+            </div>
+            <div className="mt-3 flex gap-2">
+              <Input
+                value={customAllergy}
+                onChange={(e) => setCustomAllergy(e.target.value)}
+                placeholder="Add custom allergy"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  updateField("allergies", addListValue(form.allergies, customAllergy))
+                  setCustomAllergy("")
+                }}
+              >
+                Add
+              </Button>
             </div>
           </div>
 
@@ -476,6 +521,26 @@ export default function PatientEditPage() {
                 </label>
               ))}
             </div>
+            <div className="mt-3 flex gap-2">
+              <Input
+                value={customPrescription}
+                onChange={(e) => setCustomPrescription(e.target.value)}
+                placeholder="Add custom prescription"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  updateField(
+                    "currentPrescriptions",
+                    addListValue(form.currentPrescriptions, customPrescription)
+                  )
+                  setCustomPrescription("")
+                }}
+              >
+                Add
+              </Button>
+            </div>
           </div>
 
           {/* Medical history */}
@@ -501,6 +566,26 @@ export default function PatientEditPage() {
                   <span className="text-sm">{option}</span>
                 </label>
               ))}
+            </div>
+            <div className="mt-3 flex gap-2">
+              <Input
+                value={customMedicalHistory}
+                onChange={(e) => setCustomMedicalHistory(e.target.value)}
+                placeholder="Add custom medical history item"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  updateField(
+                    "medicalHistory",
+                    addListValue(form.medicalHistory, customMedicalHistory)
+                  )
+                  setCustomMedicalHistory("")
+                }}
+              >
+                Add
+              </Button>
             </div>
           </div>
 
@@ -528,6 +613,38 @@ export default function PatientEditPage() {
                 </label>
               ))}
             </div>
+            <div className="mt-3 flex gap-2">
+              <Input
+                value={customPastMedicalHistory}
+                onChange={(e) => setCustomPastMedicalHistory(e.target.value)}
+                placeholder="Add custom past medical history item"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  updateField(
+                    "pastMedicalHistory",
+                    addListValue(form.pastMedicalHistory, customPastMedicalHistory)
+                  )
+                  setCustomPastMedicalHistory("")
+                }}
+              >
+                Add
+              </Button>
+            </div>
+          </div>
+
+          <div>
+            <Label htmlFor="important-test-results">Important test results</Label>
+            <textarea
+              id="important-test-results"
+              value={form.importantTestResults ?? ""}
+              onChange={(e) => updateField("importantTestResults", e.target.value)}
+              placeholder="Attach key findings (labs/imaging/pathology), one paragraph or bullet-style text."
+              rows={3}
+              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            />
           </div>
 
           <div>

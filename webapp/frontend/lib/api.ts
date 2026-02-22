@@ -28,6 +28,7 @@ export interface Patient {
   currentPrescriptions?: string[]
   medicalHistory: string[]
   pastMedicalHistory?: string[]
+  importantTestResults?: string
   notes: string[]
 }
 
@@ -171,6 +172,7 @@ export async function createPatient(data: {
   currentPrescriptions?: string[]
   medicalHistory?: string[]
   pastMedicalHistory?: string[]
+  importantTestResults?: string
   useAlbertaHealthCard?: boolean
   albertaHealthCardNumber?: string
   notes?: string[]

@@ -125,6 +125,7 @@ class Patient(models.Model):
     _current_prescriptions = models.TextField(blank=True, default="")
     _medical_history = models.TextField(blank=True, default="")
     _past_medical_history = models.TextField(blank=True, default="")
+    _important_test_results = models.TextField(blank=True, default="")
     _notes = models.TextField(blank=True, default="")
 
     class Meta:
@@ -298,6 +299,14 @@ class Patient(models.Model):
         self._set_json("_past_medical_history", value if isinstance(value, list) else [])
 
     @property
+    def important_test_results(self):
+        return self._get_enc("_important_test_results")
+
+    @important_test_results.setter
+    def important_test_results(self, value):
+        self._set_enc("_important_test_results", value)
+
+    @property
     def notes(self):
         return self._get_json("_notes", []) or []
 
@@ -328,5 +337,6 @@ class Patient(models.Model):
             "currentPrescriptions": self.current_prescriptions or [],
             "medicalHistory": self.medical_history or [],
             "pastMedicalHistory": self.past_medical_history or [],
+            "importantTestResults": self.important_test_results or "",
             "notes": self.notes or [],
         }

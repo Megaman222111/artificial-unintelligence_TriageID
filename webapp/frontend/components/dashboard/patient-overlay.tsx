@@ -303,6 +303,24 @@ export function PatientOverlay({
                     {patient.bloodType}
                   </p>
                 </div>
+                <div>
+                  <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                    Primary Diagnosis
+                  </p>
+                  <p className="mt-0.5 text-sm font-medium text-foreground">
+                    {patient.primaryDiagnosis || "Not specified"}
+                  </p>
+                </div>
+                {(patient.importantTestResults ?? "").trim() && (
+                  <div>
+                    <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Important Test Results
+                    </p>
+                    <p className="mt-0.5 text-sm text-foreground whitespace-pre-wrap">
+                      {patient.importantTestResults}
+                    </p>
+                  </div>
+                )}
 
                 {/* Allergies */}
                 <div>

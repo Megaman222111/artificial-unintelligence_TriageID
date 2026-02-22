@@ -256,6 +256,20 @@ export function PatientDetail({ patient }: { patient: Patient }) {
                 </p>
               </div>
             </div>
+            <div className="mt-4">
+              <p className="text-xs text-muted-foreground">Primary Diagnosis</p>
+              <p className="text-sm font-medium text-foreground">
+                {patient.primaryDiagnosis || "Not specified"}
+              </p>
+            </div>
+            {(patient.importantTestResults ?? "").trim() && (
+              <div className="mt-4">
+                <p className="text-xs text-muted-foreground">Important Test Results</p>
+                <p className="text-sm text-foreground whitespace-pre-wrap">
+                  {patient.importantTestResults}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Allergies */}

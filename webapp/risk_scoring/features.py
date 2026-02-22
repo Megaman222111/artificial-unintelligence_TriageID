@@ -28,6 +28,14 @@ SERIOUS_CONDITION_WEIGHTS: Dict[str, float] = {
     "heart failure": 16.0,
     "metastatic": 20.0,
     "cancer": 12.0,
+    "malignancy": 14.0,
+    "tumor": 12.0,
+    "oncology": 12.0,
+    "metastasis": 20.0,
+    "metastases": 20.0,
+    "leukemia": 18.0,
+    "lymphoma": 18.0,
+    "sarcoma": 18.0,
     "renal failure": 12.0,
     "ckd": 10.0,
     "copd": 10.0,
@@ -146,10 +154,13 @@ def patient_to_feature_dict(patient: Any, *, now_date: date | None = None) -> Di
     history = _as_list(getattr(patient, "medical_history", []))
     past_history = _as_list(getattr(patient, "past_medical_history", []))
     primary_diagnosis = str(getattr(patient, "primary_diagnosis", "") or "").strip()
+    important_test_results = str(getattr(patient, "important_test_results", "") or "").strip()
     status = (getattr(patient, "status", "") or "unknown").strip().lower() or "unknown"
     combined_history = list(history) + list(past_history)
     if primary_diagnosis:
         combined_history.append(primary_diagnosis)
+    if important_test_results:
+        combined_history.append(important_test_results)
     high_risk_history_count = _keyword_hit_count(combined_history, HIGH_RISK_HISTORY_KEYWORDS)
     high_risk_allergy_count = _keyword_hit_count(allergies, HIGH_RISK_ALLERGY_KEYWORDS)
     high_risk_prescription_count = _keyword_hit_count(
