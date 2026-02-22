@@ -411,10 +411,6 @@
     async function doWrite() {
       if (!writer) return;
       const id = writeInput.value.trim().slice(0, USER_ID_MAX_LEN);
-      if (!id) {
-        showWriteError("Enter a user ID to write.");
-        return;
-      }
       clearWriteError();
       setStatus("Waiting for card…", "waiting");
       btnWrite.disabled = true;

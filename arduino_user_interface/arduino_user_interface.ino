@@ -318,13 +318,6 @@ void doReadCommand() {
     return;
   }
   userIDFromBlock(block, userid);
-  if (userIDIsEmpty(userid)) {
-    Serial.println(F("ERROR|Card empty"));
-    beepError();
-    delay(500);
-    lcdShowIdle();
-    return;
-  }
   Serial.print(F("OK|READ|"));
   Serial.println(userid);
   beepSuccess();
@@ -397,8 +390,8 @@ void loop() {
       if (cmdBufIdx > 0) {
         if (strcmp(cmdBuf, "READ") == 0) {
           doReadCommand();
-        } else if (strncmp(cmdBuf, "WRITE|", 6) == 0) {
-          const char *id = cmdBuf + 6;
+        } else if (strcmp(cmdBuf, "WRITE") == 0 || strncmp(cmdBuf, "WRITE|", 6) == 0) {
+          const char *id = (strncmp(cmdBuf, "WRITE|", 6) == 0) ? (cmdBuf + 6) : "";
           char trimId[USER_ID_MAX_LEN];
           int i = 0;
           while (i < USER_ID_MAX_LEN - 1 && id[i]) { trimId[i] = id[i]; i++; }
@@ -449,7 +442,8 @@ void loop() {
 
   Serial.println(F("--- Remove card ---\n"));
   if (!readOk) {
-    delay(3000);
+    delay(1500);
+    lcdCountdownSeconds(COUNTDOWN_SECONDS);
     lcdShowIdle();
   } else {
     lcdCountdownSeconds(COUNTDOWN_SECONDS);
@@ -481,10 +475,6 @@ bool readUserIDClassic(uint8_t *uid, uint8_t uidLen) {
   printUserIDFromBlock(block);
   char uidStr[USER_ID_MAX_LEN];
   userIDFromBlock(block, uidStr);
-  if (userIDIsEmpty(uidStr)) {
-    beepError();
-    return false;
-  }
   beepSuccess();
   lcdShowReading();
   return true;
@@ -530,10 +520,6 @@ bool readUserIDUltralight() {
   printUserIDFromBlock(block);
   char uidStr[USER_ID_MAX_LEN];
   userIDFromBlock(block, uidStr);
-  if (userIDIsEmpty(uidStr)) {
-    beepError();
-    return false;
-  }
   beepSuccess();
   lcdShowReading();
   return true;
