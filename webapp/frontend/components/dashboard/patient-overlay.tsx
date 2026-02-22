@@ -12,12 +12,13 @@ import {
   ExternalLink,
   Sparkles,
   Loader2,
+  Activity,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import type { Patient } from "@/lib/api"
-import { getPatientAiOverview, getPatientRiskScore, type PatientRiskScore } from "@/lib/api"
+import type { Patient, PatientRiskScore } from "@/lib/api"
+import { getPatientAiOverview, getPatientRiskScore } from "@/lib/api"
 
 function getStatusColor(status: string) {
   switch (status) {
@@ -47,17 +48,6 @@ function getAge(dob: string) {
   return age
 }
 
-function getRiskBandStyles(band: string) {
-  if (band === "high") return "border-destructive/30 bg-destructive/5 text-destructive"
-  if (band === "medium") return "border-amber-400/30 bg-amber-400/10 text-amber-700"
-  return "border-emerald-400/30 bg-emerald-400/10 text-emerald-700"
-}
-
-function formatMedication(med: Patient["medications"][number]) {
-  if (typeof med === "string") return { name: med, dosage: "" }
-  return { name: med?.name ?? "", dosage: med?.dosage ?? "" }
-}
-
 export function PatientOverlay({
   patient,
   onClose,
@@ -66,18 +56,44 @@ export function PatientOverlay({
   onClose: () => void
 }) {
   const [visible, setVisible] = useState(false)
+  const [riskScore, setRiskScore] = useState<PatientRiskScore | null>(null)
+  const [riskScoreLoading, setRiskScoreLoading] = useState(true)
+  const [riskScoreError, setRiskScoreError] = useState<string | null>(null)
   const [aiOverview, setAiOverview] = useState<string | null>(null)
   const [aiOverviewLoading, setAiOverviewLoading] = useState(true)
   const [aiOverviewError, setAiOverviewError] = useState<string | null>(null)
-  const [risk, setRisk] = useState<PatientRiskScore | null>(null)
-  const [riskLoading, setRiskLoading] = useState(true)
-  const [riskError, setRiskError] = useState<string | null>(null)
 
   useEffect(() => {
     // Trigger entrance animation
     const raf = requestAnimationFrame(() => setVisible(true))
     return () => cancelAnimationFrame(raf)
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    setRiskScoreLoading(true)
+    setRiskScoreError(null)
+    setRiskScore(null)
+    getPatientRiskScore(patient.id)
+      .then((data) => {
+        if (!cancelled) {
+          setRiskScore(data)
+          setRiskScoreError(null)
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setRiskScoreError(err instanceof Error ? err.message : "Failed to load risk score")
+          setRiskScore(null)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setRiskScoreLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [patient.id])
 
   useEffect(() => {
     let cancelled = false
@@ -99,26 +115,6 @@ export function PatientOverlay({
       })
       .finally(() => {
         if (!cancelled) setAiOverviewLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [patient.id])
-
-  useEffect(() => {
-    let cancelled = false
-    setRiskLoading(true)
-    setRiskError(null)
-    setRisk(null)
-    getPatientRiskScore(patient.id)
-      .then((result) => {
-        if (!cancelled) setRisk(result)
-      })
-      .catch((err) => {
-        if (!cancelled) setRiskError(err instanceof Error ? err.message : "Failed to load risk score")
-      })
-      .finally(() => {
-        if (!cancelled) setRiskLoading(false)
       })
     return () => {
       cancelled = true
@@ -193,6 +189,56 @@ export function PatientOverlay({
 
           {/* Content */}
           <div className="p-6">
+            {/* Risk score */}
+            <div className="mb-5 rounded-xl border border-border bg-muted/30 px-4 py-3">
+              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <Activity className="h-4 w-4 text-primary" />
+                Risk
+              </div>
+              {riskScoreLoading && (
+                <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Calculating…
+                </div>
+              )}
+              {!riskScoreLoading && riskScore && (
+                <div className="mt-2 space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge
+                      variant="outline"
+                      className={
+                        riskScore.riskBand === "high"
+                          ? "border-destructive/40 bg-destructive/10 text-destructive"
+                          : riskScore.riskBand === "medium"
+                            ? "border-amber-500/40 bg-amber-500/10 text-amber-600"
+                            : "border-primary/40 bg-primary/10 text-primary"
+                      }
+                    >
+                      {riskScore.riskBand}
+                    </Badge>
+                    <span className="text-sm text-muted-foreground">
+                      {(riskScore.riskProbability * 100).toFixed(1)}% probability
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      ({riskScore.scoringMode})
+                    </span>
+                  </div>
+                  {riskScore.topFactors.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Top factors:{" "}
+                      {riskScore.topFactors
+                        .slice(0, 3)
+                        .map((f) => f.feature)
+                        .join(", ")}
+                    </p>
+                  )}
+                </div>
+              )}
+              {!riskScoreLoading && !riskScore && riskScoreError && (
+                <p className="mt-2 text-sm text-destructive">{riskScoreError}</p>
+              )}
+            </div>
+
             {/* AI Overview – only show when we have content or are loading */}
             <div className="mb-5 rounded-xl border border-border bg-muted/30 px-4 py-3">
               <div className="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -213,42 +259,6 @@ export function PatientOverlay({
               )}
               {!aiOverviewLoading && !aiOverview && !aiOverviewError && (
                 <p className="mt-2 text-sm text-muted-foreground">Overview unavailable</p>
-              )}
-            </div>
-
-            <div className="mb-5 rounded-xl border border-border bg-muted/30 px-4 py-3">
-              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <ShieldCheck className="h-4 w-4 text-primary" />
-                30-Day Risk Score
-              </div>
-              {riskLoading && (
-                <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Calculating score...
-                </div>
-              )}
-              {!riskLoading && riskError && (
-                <p className="mt-2 text-sm text-destructive">{riskError}</p>
-              )}
-              {!riskLoading && risk && (
-                <div className="mt-2 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className={`capitalize ${getRiskBandStyles(risk.riskBand)}`}>
-                      {risk.riskBand}
-                    </Badge>
-                    <span className="text-sm text-muted-foreground">
-                      {(risk.riskProbability * 100).toFixed(1)}%
-                    </span>
-                  </div>
-                  <div className="space-y-1">
-                    {risk.topFactors.slice(0, 3).map((factor, idx) => (
-                      <p key={`${factor.feature}-${idx}`} className="text-sm leading-relaxed text-foreground">
-                        {factor.feature} ({factor.direction === "up" ? "+" : ""}
-                        {factor.contribution.toFixed(3)})
-                      </p>
-                    ))}
-                  </div>
-                </div>
               )}
             </div>
 
@@ -309,18 +319,15 @@ export function PatientOverlay({
                     </p>
                   </div>
                   <div className="mt-1.5 flex flex-col gap-1.5">
-                    {patient.medications.map((med, i) => {
-                      const normalized = formatMedication(med)
-                      return (
+                    {patient.medications.map((med, i) => (
                       <div
                         key={i}
                         className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2"
                       >
-                        <span className="text-sm text-foreground">{normalized.name || "Unspecified"}</span>
-                        <span className="text-xs text-muted-foreground">{normalized.dosage}</span>
+                        <span className="text-sm text-foreground">{med.name}</span>
+                        <span className="text-xs text-muted-foreground">{med.dosage}</span>
                       </div>
-                      )
-                    })}
+                    ))}
                   </div>
                 </div>
 

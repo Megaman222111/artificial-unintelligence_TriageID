@@ -20,32 +20,15 @@ export interface Patient {
     relationship: string
     phone: string
   }
-  medications: Array<
-    | string
-    | {
-      name: string
-      dosage: string
-      frequency: string
-    }
-  >
+  medications: {
+    name: string
+    dosage: string
+    frequency: string
+  }[]
   currentPrescriptions?: string[]
   medicalHistory: string[]
   pastMedicalHistory?: string[]
   notes: string[]
-}
-
-export interface PatientRiskFactor {
-  feature: string
-  direction: "up" | "down"
-  contribution: number
-}
-
-export interface PatientRiskScore {
-  riskProbability: number
-  riskBand: "low" | "medium" | "high"
-  modelVersion: string
-  topFactors: PatientRiskFactor[]
-  scoringMode: "heuristic" | "supervised"
 }
 
 import { getAccessToken } from "./auth"
@@ -99,6 +82,35 @@ export async function getPatientByNfcId(nfcId: string): Promise<Patient | null> 
   }
 }
 
+/** Risk score from /api/patients/risk-score/ */
+export interface PatientRiskScore {
+  riskBand: "low" | "medium" | "high"
+  riskProbability: number
+  modelVersion: string
+  topFactors: { feature: string; direction: string; contribution: number }[]
+  scoringMode: "heuristic" | "supervised"
+}
+
+/** Get risk score for a patient (trained model or heuristic). */
+export async function getPatientRiskScore(patientId: string): Promise<PatientRiskScore> {
+  const res = await fetch(`${API_BASE_URL}/api/patients/risk-score/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {}),
+    },
+    body: JSON.stringify({ patient_id: patientId }),
+    cache: "no-store",
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const message =
+      typeof body.detail === "string" ? body.detail : `Risk score failed (${res.status})`
+    throw new Error(message)
+  }
+  return body as PatientRiskScore
+}
+
 /** Get AI-generated clinical overview for a patient (Ark Labs). */
 export async function getPatientAiOverview(patientId: string): Promise<string> {
   const res = await fetch(`${API_BASE_URL}/api/patients/ai-overview/`, {
@@ -121,13 +133,6 @@ export async function getPatientAiOverview(patientId: string): Promise<string> {
     throw new Error(message)
   }
   return typeof body.overview === "string" ? body.overview : ""
-}
-
-export async function getPatientRiskScore(patientId: string): Promise<PatientRiskScore> {
-  return fetchJson<PatientRiskScore>("/api/patients/risk-score/", {
-    method: "POST",
-    body: JSON.stringify({ patient_id: patientId }),
-  })
 }
 
 /** Look up patient by NFC tag id read from Arduino. tagId must come from the reader; backend only returns patients that exist for that nfc_id. */

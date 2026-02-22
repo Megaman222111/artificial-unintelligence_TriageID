@@ -12,7 +12,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
 
   useEffect(() => {
-    getMe().then((u) => setUser(u))
+    getMe()
+      .then((u) => setUser(u))
+      .catch(() => setUser(null))
   }, [])
 
   function handleLogout() {

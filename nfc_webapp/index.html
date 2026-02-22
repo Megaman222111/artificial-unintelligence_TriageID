@@ -317,11 +317,17 @@
             readResolve = null;
             r(t);
           } else {
-            const match = t.match(/User ID:\s*"([^"]*)"/);
-            if (match) {
-              const id = match[1].trim() || "(empty)";
-              readResult.textContent = id;
-              readResult.className = "user-id-display filled";
+            let id = null;
+            const okReadMatch = t.match(/^OK\|READ\|(.*)$/);
+            if (okReadMatch) {
+              id = (okReadMatch[1] || "").trim();
+            } else {
+              const userMatch = t.match(/User ID:\s*"([^"]*)"/);
+              if (userMatch) id = (userMatch[1] || "").trim();
+            }
+            if (id !== null) {
+              readResult.textContent = id === "" ? "(empty)" : id;
+              readResult.className = "user-id-display " + (id === "" ? "empty" : "filled");
               clearError();
               setStatus("Connected", "connected");
             }

@@ -330,30 +330,3 @@ class Patient(models.Model):
             "pastMedicalHistory": self.past_medical_history or [],
             "notes": self.notes or [],
         }
-
-
-class PatientOutcomeEvent(models.Model):
-    class EventType(models.TextChoices):
-        CRITICAL_DETERIORATION = "critical_deterioration", "Critical Deterioration"
-        DEATH = "death", "Death"
-
-    patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name="outcome_events")
-    event_type = models.CharField(max_length=64, choices=EventType.choices)
-    event_time = models.DateTimeField()
-    source = models.CharField(max_length=64, default="manual")
-    note = models.TextField(blank=True, default="")
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ["-event_time", "-created_at"]
-
-    def to_api_dict(self):
-        return {
-            "id": self.id,
-            "patientId": self.patient_id,
-            "eventType": self.event_type,
-            "eventTime": self.event_time.isoformat() if self.event_time else None,
-            "source": self.source,
-            "note": self.note,
-            "createdAt": self.created_at.isoformat() if self.created_at else None,
-        }

@@ -22,6 +22,8 @@ export function NfcScanView() {
   const [isScanning, setIsScanning] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
   const [emptyCardTagId, setEmptyCardTagId] = useState<string | null>(null)
+  const [emptyTagPrompt, setEmptyTagPrompt] = useState(false)
+  const [addPatientReason, setAddPatientReason] = useState<"no_id" | "no_patient" | null>(null)
   const [ripples, setRipples] = useState<number[]>([])
   const rippleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -35,6 +37,8 @@ export function NfcScanView() {
   const handleTagReadFromSerial = useCallback(async (tagId: string) => {
     setScanError(null)
     setEmptyCardTagId(null)
+    setEmptyTagPrompt(false)
+    setAddPatientReason(null)
     setIsScanning(true)
     try {
       const isEmptyCard = tagId.trim() === ""
@@ -42,15 +46,17 @@ export function NfcScanView() {
         const generatedId = generateRandomNfcId()
         await new Promise((resolve) => setTimeout(resolve, 400))
         setEmptyCardTagId(generatedId)
-        setScanError("This card has no ID. A new ID was generated. Add a patient (full form) and then scan a tag to write the ID to the wristband.")
+        setAddPatientReason("no_id")
+        setEmptyTagPrompt(true)
         return
       }
       const patient = await scanNfcTag(tagId)
       await new Promise((resolve) => setTimeout(resolve, 400))
       if (patient) setScannedPatient(patient)
       else {
-        setScanError(`No patient found for NFC ID "${tagId}".`)
         setEmptyCardTagId(tagId)
+        setAddPatientReason("no_patient")
+        setEmptyTagPrompt(true)
       }
     } finally {
       setIsScanning(false)
@@ -258,19 +264,40 @@ export function NfcScanView() {
         their medical records securely.
       </p>
 
-      {(scanError || serialError) && (
+      {emptyTagPrompt && emptyCardTagId && (
+        <div className="mt-3 flex flex-col items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-center">
+          <p className="text-sm font-medium text-foreground">
+            {addPatientReason === "no_id"
+              ? "This wristband has no ID. Would you like to add a new patient?"
+              : "No patient found for this wristband. Would you like to add a new patient?"}
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <Button className="gap-2" asChild>
+              <Link href={`/dashboard/patients/edit?nfcId=${encodeURIComponent(emptyCardTagId)}`}>
+                <UserPlus className="h-4 w-4" />
+                Add new patient
+              </Link>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setEmptyTagPrompt(false)
+                setEmptyCardTagId(null)
+                setAddPatientReason(null)
+              }}
+            >
+              Dismiss
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {(scanError || serialError) && !emptyTagPrompt && (
         <div className="mt-3 flex flex-col items-center gap-2">
           <p className="text-center text-sm text-destructive">
             {scanError ?? serialError}
           </p>
-          {emptyCardTagId != null && emptyCardTagId.trim() !== "" && (
-            <Button variant="outline" size="sm" className="gap-2 border-primary/40 bg-primary/5 text-primary hover:bg-primary/10" asChild>
-              <Link href={`/dashboard/patients/edit?nfcId=${encodeURIComponent(emptyCardTagId)}`}>
-                <UserPlus className="h-4 w-4" />
-                Add patient for this card (full form)
-              </Link>
-            </Button>
-          )}
         </div>
       )}
 

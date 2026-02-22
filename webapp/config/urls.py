@@ -31,6 +31,7 @@ def api_root(request):
             "/api/auth/me/",
             "/api/patients/",
             "/api/patients/ai-overview/",
+            "/api/patients/risk-score/",
             "/api/patients/<id>/",
             "/api/patients/by-nfc/<nfc_id>/",
             "/api/nfc/scan/",

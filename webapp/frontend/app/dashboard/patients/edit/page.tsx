@@ -167,7 +167,7 @@ export default function PatientEditPage() {
           insuranceId: form.insuranceId ?? "",
           useAlbertaHealthCard: form.useAlbertaHealthCard ?? false,
           albertaHealthCardNumber: form.albertaHealthCardNumber ?? "",
-          emergencyContact: form.emergencyContact ?? { name: "", relationship: "", phone: "" },
+          emergencyContact: form.emergencyContact ?? {},
           medications: form.medications ?? [],
           currentPrescriptions: form.currentPrescriptions ?? [],
           medicalHistory: form.medicalHistory ?? [],
@@ -223,7 +223,7 @@ export default function PatientEditPage() {
         </div>
 
         <div className="rounded-xl border border-border bg-card p-6">
-          <h1 className="mb-4 text-xl font-bold font-heading text-foreground">
+          <h1 className="mb-4 text-xl font-bold font-[family-name:var(--font-heading)] text-foreground">
             Add / Edit patient by NFC
           </h1>
           <p className="mb-4 text-sm text-muted-foreground">
@@ -279,7 +279,7 @@ export default function PatientEditPage() {
         </div>
 
         <div className="space-y-6 rounded-xl border border-border bg-card p-6">
-          <h2 className="text-lg font-semibold font-heading text-foreground">
+          <h2 className="text-lg font-semibold font-[family-name:var(--font-heading)] text-foreground">
             Patient information
           </h2>
 

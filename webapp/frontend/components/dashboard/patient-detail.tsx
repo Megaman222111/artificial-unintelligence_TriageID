@@ -14,12 +14,14 @@ import {
   Calendar,
   Building,
   CreditCard,
+  Activity,
   Loader2,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import { getPatientRiskScore, type Patient, type PatientRiskScore } from "@/lib/api"
+import type { Patient, PatientRiskScore } from "@/lib/api"
+import { getPatientRiskScore } from "@/lib/api"
 
 function getStatusColor(status: string) {
   switch (status) {
@@ -36,23 +38,6 @@ function getStatusColor(status: string) {
 
 function getInitials(first: string, last: string) {
   return `${first[0]}${last[0]}`
-}
-
-function getRiskBandStyles(band: string) {
-  if (band === "high") return "border-destructive/30 bg-destructive/5 text-destructive"
-  if (band === "medium") return "border-amber-400/30 bg-amber-400/10 text-amber-700"
-  return "border-emerald-400/30 bg-emerald-400/10 text-emerald-700"
-}
-
-function formatMedication(med: Patient["medications"][number]) {
-  if (typeof med === "string") {
-    return { name: med, dosage: "", frequency: "" }
-  }
-  return {
-    name: med?.name ?? "",
-    dosage: med?.dosage ?? "",
-    frequency: med?.frequency ?? "",
-  }
 }
 
 function formatDate(dateStr: string) {
@@ -75,23 +60,29 @@ function getAge(dob: string) {
 }
 
 export function PatientDetail({ patient }: { patient: Patient }) {
-  const [risk, setRisk] = useState<PatientRiskScore | null>(null)
-  const [riskLoading, setRiskLoading] = useState(true)
-  const [riskError, setRiskError] = useState<string | null>(null)
+  const [riskScore, setRiskScore] = useState<PatientRiskScore | null>(null)
+  const [riskScoreLoading, setRiskScoreLoading] = useState(true)
+  const [riskScoreError, setRiskScoreError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    setRiskLoading(true)
-    setRiskError(null)
+    setRiskScoreLoading(true)
+    setRiskScoreError(null)
     getPatientRiskScore(patient.id)
-      .then((res) => {
-        if (!cancelled) setRisk(res)
+      .then((data) => {
+        if (!cancelled) {
+          setRiskScore(data)
+          setRiskScoreError(null)
+        }
       })
       .catch((err) => {
-        if (!cancelled) setRiskError(err instanceof Error ? err.message : "Failed to load risk score")
+        if (!cancelled) {
+          setRiskScoreError(err instanceof Error ? err.message : "Failed to load")
+          setRiskScore(null)
+        }
       })
       .finally(() => {
-        if (!cancelled) setRiskLoading(false)
+        if (!cancelled) setRiskScoreLoading(false)
       })
     return () => {
       cancelled = true
@@ -148,6 +139,59 @@ export function PatientDetail({ patient }: { patient: Patient }) {
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Left column */}
         <div className="flex flex-col gap-6">
+          {/* Risk score */}
+          <div className="rounded-xl border border-border bg-card p-6">
+            <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold font-[family-name:var(--font-heading)] text-foreground">
+              <Activity className="h-5 w-5 text-primary" />
+              Risk
+            </h2>
+            {riskScoreLoading && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Calculating…
+              </div>
+            )}
+            {!riskScoreLoading && riskScore && (
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge
+                    variant="outline"
+                    className={
+                      riskScore.riskBand === "high"
+                        ? "border-destructive/40 bg-destructive/10 text-destructive"
+                        : riskScore.riskBand === "medium"
+                          ? "border-amber-500/40 bg-amber-500/10 text-amber-600"
+                          : "border-primary/40 bg-primary/10 text-primary"
+                    }
+                  >
+                    {riskScore.riskBand}
+                  </Badge>
+                  <span className="text-sm text-muted-foreground">
+                    {(riskScore.riskProbability * 100).toFixed(1)}% probability
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    ({riskScore.scoringMode})
+                  </span>
+                </div>
+                {riskScore.topFactors.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Top factors:{" "}
+                    {riskScore.topFactors
+                      .slice(0, 5)
+                      .map((f) => f.feature)
+                      .join(", ")}
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Model: {riskScore.modelVersion}
+                </p>
+              </div>
+            )}
+            {!riskScoreLoading && !riskScore && riskScoreError && (
+              <p className="text-sm text-destructive">{riskScoreError}</p>
+            )}
+          </div>
+
           {/* Personal information */}
           <div className="rounded-xl border border-border bg-card p-6">
             <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold font-[family-name:var(--font-heading)] text-foreground">
@@ -244,45 +288,6 @@ export function PatientDetail({ patient }: { patient: Patient }) {
 
         {/* Right column */}
         <div className="flex flex-col gap-6">
-          <div className="rounded-xl border border-border bg-card p-6">
-            <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold font-[family-name:var(--font-heading)] text-foreground">
-              <ShieldCheck className="h-5 w-5 text-primary" />
-              30-Day Deterioration Risk
-            </h2>
-            {riskLoading && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Calculating risk score...
-              </div>
-            )}
-            {!riskLoading && riskError && (
-              <p className="text-sm text-destructive">{riskError}</p>
-            )}
-            {!riskLoading && risk && (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className={`capitalize ${getRiskBandStyles(risk.riskBand)}`}>
-                    {risk.riskBand}
-                  </Badge>
-                  <span className="text-sm text-muted-foreground">
-                    {(risk.riskProbability * 100).toFixed(1)}% probability
-                  </span>
-                </div>
-                <div className="space-y-1">
-                  {risk.topFactors.map((factor, idx) => (
-                    <p key={`${factor.feature}-${idx}`} className="text-sm text-foreground">
-                      {factor.feature} ({factor.direction === "up" ? "+" : ""}
-                      {factor.contribution.toFixed(3)})
-                    </p>
-                  ))}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {risk.scoringMode} • {risk.modelVersion}
-                </p>
-              </div>
-            )}
-          </div>
-
           {/* Medications */}
           <div className="rounded-xl border border-border bg-card p-6">
             <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold font-[family-name:var(--font-heading)] text-foreground">
@@ -290,23 +295,18 @@ export function PatientDetail({ patient }: { patient: Patient }) {
               Current Medications
             </h2>
             <div className="flex flex-col gap-3">
-              {(patient.medications ?? []).map((med, index) => {
-                const normalized = formatMedication(med)
-                return (
+              {(patient.medications ?? []).map((med, index) => (
                 <div
                   key={index}
                   className="flex items-center justify-between rounded-lg bg-muted/50 p-3"
                 >
                   <div>
-                    <p className="text-sm font-medium text-foreground">{normalized.name || "Unspecified"}</p>
-                    {normalized.frequency && (
-                      <p className="text-xs text-muted-foreground">{normalized.frequency}</p>
-                    )}
+                    <p className="text-sm font-medium text-foreground">{med.name}</p>
+                    <p className="text-xs text-muted-foreground">{med.frequency}</p>
                   </div>
-                  {normalized.dosage && <Badge variant="secondary">{normalized.dosage}</Badge>}
+                  <Badge variant="secondary">{med.dosage}</Badge>
                 </div>
-                )
-              })}
+              ))}
             </div>
           </div>
 

@@ -62,9 +62,14 @@ export async function login(email: string, password: string): Promise<{ user: Au
 export async function getMe(): Promise<AuthUser | null> {
   const token = getAccessToken()
   if (!token) return null
-  const res = await fetch(`${API_BASE_URL}/api/auth/me/`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE_URL}/api/auth/me/`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+  } catch {
+    return null
+  }
   if (!res.ok) return null
   const data = await res.json().catch(() => ({}))
   return (data.user as AuthUser) ?? null

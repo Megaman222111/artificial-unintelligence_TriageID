@@ -5,7 +5,7 @@ import { createContext, useCallback, useContext, useRef, useState, useEffect } f
 const BAUD = 115200
 // Arduino menu mode: "User ID: \"...\""; command mode: "OK|READ|userid"
 const USER_ID_REGEX = /User ID:\s*"([^"]*)"/
-const OK_READ_REGEX = /^OK\|READ\|(.+)$/
+const OK_READ_REGEX = /^OK\|READ\|(.*)$/
 const SERIAL_FILTER_COOKIE = "triageid_serial_filter"
 const COOKIE_MAX_AGE_DAYS = 365
 
@@ -125,7 +125,7 @@ export function SerialProvider({ children }: { children: React.ReactNode }) {
               const okMatch = t.match(OK_READ_REGEX)
               if (okMatch) id = (okMatch[1] ?? "").trim()
             }
-            if (id != null && id !== "") onTagReadRef.current?.(id)
+            if (id != null) onTagReadRef.current?.(id)
           }
         }
       } catch (e) {
