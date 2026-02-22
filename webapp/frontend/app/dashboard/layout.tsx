@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { getAccessToken } from "@/lib/auth"
 import { SerialProvider } from "@/contexts/serial-context"
+import { DashboardReadModeReset } from "@/components/dashboard/dashboard-read-mode-reset"
 
 export default function DashboardLayout({
   children,
@@ -34,5 +35,10 @@ export default function DashboardLayout({
     return null
   }
 
-  return <SerialProvider>{children}</SerialProvider>
+  return (
+    <SerialProvider>
+      <DashboardReadModeReset />
+      {children}
+    </SerialProvider>
+  )
 }

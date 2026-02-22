@@ -70,6 +70,7 @@ export function NfcScanView() {
     error: serialError,
     connect: serialConnect,
     disconnect: serialDisconnect,
+    send: serialSend,
     setOnTagRead,
   } = useSerialContext()
 
@@ -77,6 +78,10 @@ export function NfcScanView() {
     setOnTagRead(handleTagReadFromSerial)
     return () => setOnTagRead(null)
   }, [handleTagReadFromSerial, setOnTagRead])
+
+  useEffect(() => {
+    serialSend("READ").catch(() => {})
+  }, [serialSend])
 
   const handleClose = useCallback(() => {
     setScannedPatient(null)

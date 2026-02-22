@@ -6,6 +6,7 @@ const BAUD = 115200
 // Arduino menu mode: "User ID: \"...\""; command mode: "OK|READ|userid"
 const USER_ID_REGEX = /User ID:\s*"([^"]*)"/
 const OK_READ_REGEX = /^OK\|READ\|(.*)$/
+const OK_WRITE_REGEX = /^OK\|WRITE\s*$/
 const SERIAL_FILTER_COOKIE = "triageid_serial_filter"
 const COOKIE_MAX_AGE_DAYS = 365
 
@@ -65,6 +66,7 @@ export interface SerialContextValue {
   disconnect: () => Promise<void>
   send: (text: string) => Promise<void>
   setOnTagRead: (callback: ((tagId: string) => void) | null) => void
+  setOnWriteDone: (callback: (() => void) | null) => void
 }
 
 const SerialContext = createContext<SerialContextValue | null>(null)
@@ -75,6 +77,7 @@ export function SerialProvider({ children }: { children: React.ReactNode }) {
   const [isReconnecting, setIsReconnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const onTagReadRef = useRef<((tagId: string) => void) | null>(null)
+  const onWriteDoneRef = useRef<(() => void) | null>(null)
   const portRef = useRef<SerialPort | null>(null)
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null)
   const writerRef = useRef<WritableStreamDefaultWriter<Uint8Array> | null>(null)
@@ -82,6 +85,10 @@ export function SerialProvider({ children }: { children: React.ReactNode }) {
 
   const setOnTagRead = useCallback((callback: ((tagId: string) => void) | null) => {
     onTagReadRef.current = callback
+  }, [])
+
+  const setOnWriteDone = useCallback((callback: (() => void) | null) => {
+    onWriteDoneRef.current = callback
   }, [])
 
   useEffect(() => {
@@ -118,6 +125,14 @@ export function SerialProvider({ children }: { children: React.ReactNode }) {
           for (const line of lines) {
             const t = line.trim()
             if (!t) continue
+            if (OK_WRITE_REGEX.test(t)) {
+              onWriteDoneRef.current?.()
+              if (writerRef.current) {
+                const data = new TextEncoder().encode("READ\n")
+                writerRef.current.write(data).catch(() => {})
+              }
+              continue
+            }
             let id: string | null = null
             const userMatch = t.match(USER_ID_REGEX)
             if (userMatch) id = (userMatch[1] ?? "").trim()
@@ -250,6 +265,7 @@ export function SerialProvider({ children }: { children: React.ReactNode }) {
     disconnect,
     send,
     setOnTagRead,
+    setOnWriteDone,
   }
 
   return (
@@ -271,6 +287,7 @@ export function useSerialContext(): SerialContextValue {
       disconnect: async () => {},
       send: async () => {},
       setOnTagRead: () => {},
+      setOnWriteDone: () => {},
     }
   }
   return ctx

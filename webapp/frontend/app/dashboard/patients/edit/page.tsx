@@ -172,10 +172,7 @@ export default function PatientEditPage() {
     if (pendingWriteNfcIdRef.current != null && serialSendRef.current) {
       const toWrite = pendingWriteNfcIdRef.current
       setPendingWriteNfcId(null)
-      setWriteToTagDone(true)
       await serialSendRef.current(`WRITE|${toWrite}`)
-      // Reset scanner to read mode so the next scan works
-      await serialSendRef.current("READ")
       return
     }
     setLoadError(null)
@@ -193,13 +190,21 @@ export default function PatientEditPage() {
     if (isEmptyCard) setLoadError("Card had no ID. A new ID was generated. After saving the patient, scan a tag to write the ID to the wristband.")
   }, [generateRandomNfcId])
 
-  const { isSupported: serialSupported, isConnected: serialConnected, isReconnecting: serialReconnecting, connect: serialConnect, send: serialSend, setOnTagRead } = useSerialContext()
+  const { isSupported: serialSupported, isConnected: serialConnected, isReconnecting: serialReconnecting, connect: serialConnect, send: serialSend, setOnTagRead, setOnWriteDone } = useSerialContext()
   serialSendRef.current = serialSend
 
   useEffect(() => {
     setOnTagRead(handleTagRead)
     return () => setOnTagRead(null)
   }, [handleTagRead, setOnTagRead])
+
+  useEffect(() => {
+    setOnWriteDone(() => {
+      setWriteToTagDone(true)
+      setPendingWriteNfcId(null)
+    })
+    return () => setOnWriteDone(null)
+  }, [setOnWriteDone])
 
   const handleLoadByNfcId = useCallback(async () => {
     const id = nfcIdInput.trim()
@@ -293,6 +298,9 @@ export default function PatientEditPage() {
         })
         setPendingWriteNfcId(created.nfcId)
         setWriteToTagDone(false)
+        if (serialSendRef.current) {
+          serialSendRef.current(`WRITE|${created.nfcId}`).catch(() => {})
+        }
       }
       setSaveSuccess(true)
       if (!loadedPatient) setLoadedPatient(null)
