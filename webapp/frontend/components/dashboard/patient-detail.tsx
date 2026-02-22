@@ -194,20 +194,20 @@ export function PatientDetail({ patient }: { patient: Patient }) {
                 <p className="text-xs text-muted-foreground">
                   {riskScore.assessmentRecommendation}
                 </p>
-                {riskScore.topFactors.length > 0 && (
+                {(riskScore.topFactors?.length ?? 0) > 0 && (
                   <p className="text-xs text-muted-foreground">
                     Top factors:{" "}
-                    {riskScore.topFactors
+                    {(riskScore.topFactors ?? [])
                       .slice(0, 5)
                       .map(
                         (f) =>
-                          `${f.feature} (${f.contribution >= 0 ? "+" : ""}${f.contribution.toFixed(3)})`
+                          `${String(f?.feature ?? "")} (${(f?.contribution ?? 0) >= 0 ? "+" : ""}${Number(f?.contribution ?? 0).toFixed(3)})`
                       )
                       .join(", ")}
                   </p>
                 )}
                 <p className="text-xs text-muted-foreground">
-                  Model: {riskScore.modelVersion}
+                  Model: {riskScore.modelVersion ?? "unknown"}
                 </p>
               </div>
             )}

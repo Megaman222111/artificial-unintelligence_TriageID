@@ -264,6 +264,24 @@ class RiskScoringService:
     ) -> tuple[float, str, str]:
         score = float(probability) * 100.0
 
+        # Clinical floor: high-risk patients must not get a trivial score (e.g. 1.0)
+        high_risk_allergy = float(feature_row.get("high_risk_allergy_count") or 0.0) >= 1
+        high_risk_history = float(feature_row.get("high_risk_history_count") or 0.0) >= 1
+        serious_score = float(feature_row.get("serious_condition_score") or 0.0)
+        allergy_count = float(feature_row.get("allergy_count") or 0.0)
+        rx_count = float(feature_row.get("current_prescription_count") or 0.0)
+        high_risk_rx = float(feature_row.get("high_risk_prescription_count") or 0.0) >= 1
+        history_count = float(feature_row.get("history_count") or 0.0)
+        past_count = float(feature_row.get("past_history_count") or 0.0)
+        clinical_floor = 1.0
+        if serious_score >= 15 or (high_risk_history and high_risk_rx):
+            clinical_floor = 55.0
+        elif serious_score >= 8 or high_risk_history or (high_risk_allergy and high_risk_rx):
+            clinical_floor = 42.0
+        elif high_risk_allergy or high_risk_rx or allergy_count >= 2 or (history_count >= 4 or past_count >= 2):
+            clinical_floor = 28.0
+        score = max(score, clinical_floor)
+
         status = str(feature_row.get("status", "") or "").strip().lower()
         if status == "critical":
             score += 30.0
@@ -522,8 +540,7 @@ class RiskScoringService:
         )
 
         def _artifact_sort_key(path: Path) -> tuple[int, int, float]:
-            # Prefer higher semantic model generation first (risk-v3 > risk-v2),
-            # then newer timestamp in version suffix, then filesystem mtime.
+            # Prefer higher semantic version (risk-v3 > risk-v2 > risk-v1), then newer timestamp.
             m = re.match(r"risk_model_risk-v(\d+)-(\d+)\.joblib$", path.name)
             if m:
                 return (int(m.group(1)), int(m.group(2)), float(path.stat().st_mtime))
